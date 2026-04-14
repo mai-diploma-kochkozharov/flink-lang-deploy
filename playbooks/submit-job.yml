@@ -1,0 +1,237 @@
+---
+# ============================================================
+#  submit-job.yml — сабмит Flink-джобы на кластер
+#
+#  Обязательные параметры:
+#    job_jar       — локальный путь к JAR-файлу джобы
+#    job_class     — main-класс (entry point)
+#
+#  Опциональные параметры:
+#    job_args          — аргументы, передаваемые джобе (default: "")
+#    job_parallelism   — parallelism (default: не задан, берётся из кластера)
+#    job_name          — имя джобы для идентификации (default: basename jar-файла)
+#    job_deps_dir      — локальная папка с dependency JAR-файлами
+#                        (содержимое будет скопировано на все ноды
+#                         и подключено через --classpath)
+#    job_savepointPath — путь к savepoint для восстановления
+#    job_extra_args    — дополнительные аргументы для flink run (default: "")
+#
+#  Примеры:
+#    # Простой сабмит (зависимости уже в lib/ или не нужны)
+#    ansible-playbook playbooks/submit-job.yml \
+#      -e job_jar=files/my-job.jar \
+#      -e job_class=com.example.MyJob
+#
+#    # С dependency-джарниками
+#    ansible-playbook playbooks/submit-job.yml \
+#      -e job_jar=files/my-job.jar \
+#      -e job_class=com.example.MyJob \
+#      -e job_deps_dir=files/my-job-deps \
+#      -e 'job_args="--kafka.bootstrap.servers broker1:9092"'
+#
+#    # С восстановлением из savepoint
+#    ansible-playbook playbooks/submit-job.yml \
+#      -e job_jar=files/my-job.jar \
+#      -e job_class=com.example.MyJob \
+#      -e job_savepointPath=/opt/flink-savepoints/savepoint-abc123
+# ============================================================
+
+
+# ────────────────────────────────────────────────────────
+#  Phase 0: Валидация параметров
+# ────────────────────────────────────────────────────────
+- name: Validate submit parameters
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Check that job_jar is defined
+      assert:
+        that:
+          - job_jar is defined
+          - job_jar | length > 0
+        fail_msg: "Параметр job_jar обязателен. Пример: -e job_jar=files/my-job.jar"
+
+    - name: Check that job_class is defined
+      assert:
+        that:
+          - job_class is defined
+          - job_class | length > 0
+        fail_msg: "Параметр job_class обязателен. Пример: -e job_class=com.example.MyJob"
+
+    - name: Check that job_jar file exists
+      stat:
+        path: "{{ playbook_dir }}/../{{ job_jar }}"
+      register: jar_stat
+
+    - name: Fail if JAR not found
+      assert:
+        that: jar_stat.stat.exists
+        fail_msg: "Файл {{ job_jar }} не найден (искали {{ playbook_dir }}/../{{ job_jar }})"
+
+    - name: Check deps directory exists (if specified)
+      stat:
+        path: "{{ playbook_dir }}/../{{ job_deps_dir }}"
+      register: deps_stat
+      when: job_deps_dir is defined
+
+    - name: Fail if deps directory not found
+      assert:
+        that: deps_stat.stat.exists and deps_stat.stat.isdir
+        fail_msg: "Папка зависимостей {{ job_deps_dir }} не найдена"
+      when: job_deps_dir is defined
+
+
+# ────────────────────────────────────────────────────────
+#  Phase 1: Раскладка dependency JAR-файлов на все ноды
+#           (только если указан job_deps_dir)
+# ────────────────────────────────────────────────────────
+- name: Distribute dependency JARs to cluster
+  hosts: flink_cluster
+  gather_facts: false
+  vars:
+    flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
+    _job_name: "{{ job_name | default(job_jar | basename | regex_replace('\\.jar$', '')) }}"
+    _deps_remote_dir: "{{ flink_home }}/jobs/{{ _job_name }}/lib"
+  tasks:
+    - when: job_deps_dir is defined
+      block:
+        - name: Create job deps directory on remote
+          file:
+            path: "{{ _deps_remote_dir }}"
+            state: directory
+            mode: "0755"
+
+        - name: Find dependency JARs locally
+          find:
+            paths: "{{ playbook_dir }}/../{{ job_deps_dir }}"
+            patterns: "*.jar"
+          delegate_to: localhost
+          run_once: true
+          register: dep_jars
+
+        - name: Copy dependency JARs to all nodes
+          copy:
+            src: "{{ item.path }}"
+            dest: "{{ _deps_remote_dir }}/{{ item.path | basename }}"
+            mode: "0644"
+          loop: "{{ dep_jars.files }}"
+          loop_control:
+            label: "{{ item.path | basename }}"
+
+        - name: Report distributed deps
+          debug:
+            msg: "Скопировано {{ dep_jars.files | length }} JAR(ов) в {{ _deps_remote_dir }} на {{ inventory_hostname }}"
+
+
+# ────────────────────────────────────────────────────────
+#  Phase 2: Проверка кластера и сабмит джобы
+# ────────────────────────────────────────────────────────
+- name: Submit Flink job
+  hosts: jobmanager
+  gather_facts: false
+  vars:
+    flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
+    _job_name: "{{ job_name | default(job_jar | basename | regex_replace('\\.jar$', '')) }}"
+    _deps_remote_dir: "{{ flink_home }}/jobs/{{ _job_name }}/lib"
+    _remote_jar: "/tmp/flink-submit-{{ _job_name }}.jar"
+  tasks:
+    # ── Проверка здоровья кластера ──
+    - name: Check cluster health
+      uri:
+        url: "http://{{ inventory_hostname }}:8081/overview"
+        status_code: 200
+      register: cluster_health
+      ignore_errors: true
+
+    - name: Fail if cluster is not running
+      assert:
+        that: cluster_health is succeeded
+        fail_msg: "Кластер недоступен. Запустите: ansible-playbook playbooks/start.yml"
+
+    - name: Show cluster state
+      debug:
+        msg: |
+          Кластер: OK
+          Слоты: {{ cluster_health.json['slots-total'] }} total / {{ cluster_health.json['slots-available'] }} free
+          TaskManagers: {{ cluster_health.json['taskmanagers'] }}
+          Запущенных джоб: {{ cluster_health.json['jobs-running'] }}
+
+    # ── Копирование JAR на JobManager ──
+    - name: Copy job JAR to JobManager
+      copy:
+        src: "{{ playbook_dir }}/../{{ job_jar }}"
+        dest: "{{ _remote_jar }}"
+        mode: "0644"
+
+    # ── Формирование classpath для зависимостей ──
+    - name: Find dependency JARs on remote
+      find:
+        paths: "{{ _deps_remote_dir }}"
+        patterns: "*.jar"
+      register: remote_dep_jars
+      when: job_deps_dir is defined
+
+    - name: Build classpath arguments
+      set_fact:
+        _classpath_args: >-
+          {% if job_deps_dir is defined and remote_dep_jars.files | length > 0 %}
+          {% for jar in remote_dep_jars.files %}-C file://{{ jar.path }} {% endfor %}
+          {% endif %}
+      when: job_deps_dir is defined
+
+    - name: Set empty classpath if no deps
+      set_fact:
+        _classpath_args: ""
+      when: job_deps_dir is not defined
+
+    # ── Формирование команды сабмита ──
+    - name: Build and execute flink run command
+      shell: |
+        export JAVA_HOME={{ flink_java_home | default('/usr/lib/jvm/java-21') }}
+        export FLINK_HOME={{ flink_home }}
+        {{ flink_home }}/bin/flink run \
+          -m {{ inventory_hostname }}:8081 \
+          -c {{ job_class }} \
+          {% if job_parallelism is defined %}-p {{ job_parallelism }} {% endif %}\
+          {% if job_savepointPath is defined %}-s {{ job_savepointPath }} {% endif %}\
+          {{ _classpath_args }} \
+          {{ job_extra_args | default('') }} \
+          {{ _remote_jar }} \
+          {{ job_args | default('') }}
+      register: submit_result
+
+    - name: Show submit result
+      debug:
+        msg: |
+          ═══════════════════════════════════════════
+           Job submitted successfully!
+          ═══════════════════════════════════════════
+          {{ submit_result.stdout }}
+
+    # ── Проверка что джоба стартовала ──
+    - name: Wait for job to appear in running jobs
+      uri:
+        url: "http://{{ inventory_hostname }}:8081/jobs/overview"
+        status_code: 200
+      register: jobs_overview
+      retries: 10
+      delay: 2
+      until: >
+        jobs_overview.json.jobs | default([])
+        | selectattr('state', 'equalto', 'RUNNING')
+        | list | length > 0
+
+    - name: Show running jobs
+      debug:
+        msg: |
+          Запущенные джобы:
+          {% for job in jobs_overview.json.jobs | selectattr('state', 'equalto', 'RUNNING') %}
+            - {{ job['jid'] }} ({{ job['name'] | default('unnamed') }})
+          {% endfor %}
+
+    # ── Очистка ──
+    - name: Clean up uploaded JAR
+      file:
+        path: "{{ _remote_jar }}"
+        state: absent
