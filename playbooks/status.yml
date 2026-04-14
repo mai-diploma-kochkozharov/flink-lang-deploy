@@ -1,0 +1,52 @@
+---
+# ============================================================
+#  status.yml — проверка состояния кластера
+# ============================================================
+
+- name: Check JobManager status
+  hosts: jobmanager
+  gather_facts: false
+  vars:
+    flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
+  tasks:
+    - name: Check JobManager process
+      shell: |
+        ps aux | grep -v grep | grep 'StandaloneSessionClusterEntrypoint' || echo "NOT RUNNING"
+      register: jm_proc
+      changed_when: false
+
+    - name: Check REST API
+      uri:
+        url: "http://{{ inventory_hostname }}:8081/overview"
+        status_code: 200
+      register: jm_api
+      ignore_errors: true
+
+    - name: JobManager status
+      debug:
+        msg: |
+          Host:    {{ inventory_hostname }}
+          Process: {{ 'RUNNING' if 'NOT RUNNING' not in jm_proc.stdout else 'STOPPED' }}
+          REST:    {{ 'OK (HTTP ' ~ jm_api.status ~ ')' if jm_api is succeeded else 'UNAVAILABLE' }}
+          {% if jm_api is succeeded %}
+          Slots:   {{ (jm_api.json | default({})).get('slots-total', 'N/A') }} total / {{ (jm_api.json | default({})).get('slots-available', 'N/A') }} free
+          TMs:     {{ (jm_api.json | default({})).get('taskmanagers', 'N/A') }}
+          Jobs:    {{ (jm_api.json | default({})).get('jobs-running', '0') }} running
+          {% endif %}
+
+
+- name: Check TaskManager status
+  hosts: taskmanagers
+  gather_facts: false
+  tasks:
+    - name: Check TaskManager process
+      shell: |
+        ps aux | grep -v grep | grep 'TaskManagerRunner' || echo "NOT RUNNING"
+      register: tm_proc
+      changed_when: false
+
+    - name: TaskManager status
+      debug:
+        msg: |
+          Host:    {{ inventory_hostname }}
+          Process: {{ 'RUNNING' if 'NOT RUNNING' not in tm_proc.stdout else 'STOPPED' }}

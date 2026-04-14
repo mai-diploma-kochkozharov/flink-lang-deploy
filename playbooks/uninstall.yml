@@ -1,0 +1,24 @@
+---
+# ============================================================
+#  uninstall.yml — удаление дистрибутива Flink со всех нод
+# ============================================================
+
+- name: Stop cluster before uninstall
+  import_playbook: stop.yml
+
+- name: Remove Flink from all nodes
+  hosts: flink_cluster
+  gather_facts: false
+  vars:
+    flink_base_dir: /opt/flink-ivkochkozharov
+    flink_version: "2.2.0"
+    flink_home: "{{ flink_base_dir }}/flink-{{ flink_version }}"
+  tasks:
+    - name: Confirm removal
+      debug:
+        msg: "Removing {{ flink_home }} on {{ inventory_hostname }}"
+
+    - name: Remove Flink home directory
+      file:
+        path: "{{ flink_home }}"
+        state: absent

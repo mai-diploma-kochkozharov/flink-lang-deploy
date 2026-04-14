@@ -1,0 +1,74 @@
+---
+# ── 1. Check base directory exists ───────────────────────
+- name: Check that base directory exists
+  stat:
+    path: "{{ flink_base_dir }}"
+  register: base_dir
+
+- name: Fail if base directory does not exist
+  fail:
+    msg: >
+      Base directory {{ flink_base_dir }} does not exist.
+      Please create it before running the playbook.
+  when: not base_dir.stat.exists
+
+# ── 2. Copy and unpack archive ────────────────────────────
+- name: Check if Flink is already unpacked
+  stat:
+    path: "{{ flink_home }}/bin/flink"
+  register: flink_binary
+
+- name: Copy Flink archive to host
+  copy:
+    src: "{{ flink_archive_src }}"
+    dest: "/tmp/{{ flink_archive }}"
+    mode: "0644"
+  when: not flink_binary.stat.exists
+
+- name: Unpack Flink archive
+  unarchive:
+    src: "/tmp/{{ flink_archive }}"
+    dest: "{{ flink_base_dir }}"
+    remote_src: true
+    creates: "{{ flink_home }}/bin/flink"
+
+- name: Ensure correct directory structure
+  file:
+    path: "{{ flink_home }}"
+    state: directory
+    mode: "0755"
+
+# ── 3. Deploy configuration ──────────────────────────────
+- name: Deploy config.yaml
+  template:
+    src: flink-conf.yaml.j2
+    dest: "{{ flink_home }}/conf/config.yaml"
+    mode: "0644"
+    backup: true
+  notify: restart flink component
+
+- name: Deploy masters file
+  template:
+    src: masters.j2
+    dest: "{{ flink_home }}/conf/masters"
+    mode: "0644"
+  notify: restart flink component
+
+- name: Deploy workers file
+  template:
+    src: workers.j2
+    dest: "{{ flink_home }}/conf/workers"
+    mode: "0644"
+  notify: restart flink component
+
+# ── 4. Create log directory ──────────────────────────────
+- name: Ensure log directory exists
+  file:
+    path: "{{ flink_log_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Clean up archive from /tmp
+  file:
+    path: "/tmp/{{ flink_archive }}"
+    state: absent

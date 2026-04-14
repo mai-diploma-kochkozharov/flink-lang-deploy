@@ -1,0 +1,34 @@
+# ── Paths ──────────────────────────────────────────────
+flink_base_dir: /opt/flink-ivkochkozharov
+flink_version: "2.2.0"
+flink_home: "{{ flink_base_dir }}/flink-{{ flink_version }}"
+flink_archive: "flink-{{ flink_version }}-bin-scala_2.12.tgz"
+flink_archive_src: "{{ playbook_dir }}/../files/{{ flink_archive }}"
+
+# ── Network ────────────────────────────────────────────
+flink_jobmanager_host: lang33.delta.sbrf.ru
+flink_jobmanager_rpc_port: 6123
+flink_jobmanager_web_port: 8081
+
+# ── Memory (override per-group or per-host as needed) ──
+flink_jobmanager_memory: "4096m"
+flink_taskmanager_memory: "8192m"
+flink_taskmanager_slots: 4
+
+# ── Parallelism ────────────────────────────────────────
+flink_parallelism_default: 20          # 5 hosts × 4 slots
+
+# ── HA (выключено по умолчанию) ────────────────────────
+flink_ha_enabled: false
+flink_ha_zookeeper_quorum: ""
+flink_ha_storage_dir: ""
+
+# JAVA
+
+flink_java_home: /usr/lib/jvm/java-21
+
+# ── Logging ────────────────────────────────────────────
+flink_log_dir: "{{ flink_home }}/log"
+
+# ── Extra flink-conf.yaml entries (dict) ───────────────
+flink_extra_config: {}

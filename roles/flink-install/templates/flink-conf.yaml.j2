@@ -1,0 +1,41 @@
+# ============================================================
+#  flink-conf.yaml — managed by Ansible, do NOT edit manually
+# ============================================================
+
+# ── JobManager ─────────────────────────────────────────────
+jobmanager.rpc.address: {{ flink_jobmanager_host }}
+jobmanager.rpc.port: {{ flink_jobmanager_rpc_port }}
+jobmanager.memory.process.size: {{ flink_jobmanager_memory }}
+jobmanager.bind-host: 0.0.0.0
+
+# ── Web UI ─────────────────────────────────────────────────
+rest.port: {{ flink_jobmanager_web_port }}
+rest.address: {{ flink_jobmanager_host }}
+rest.bind-address: 0.0.0.0
+
+# ── TaskManager ────────────────────────────────────────────
+taskmanager.memory.process.size: {{ flink_taskmanager_memory }}
+taskmanager.numberOfTaskSlots: {{ flink_taskmanager_slots }}
+taskmanager.bind-host: 0.0.0.0
+taskmanager.host: {{ inventory_hostname }}
+
+# ── Parallelism ────────────────────────────────────────────
+parallelism.default: {{ flink_parallelism_default }}
+
+# ── High Availability ─────────────────────────────────────
+{% if flink_ha_enabled %}
+high-availability.type: zookeeper
+high-availability.zookeeper.quorum: {{ flink_ha_zookeeper_quorum }}
+high-availability.storageDir: {{ flink_ha_storage_dir }}
+{% endif %}
+
+# JAVA
+env.java.home: {{ flink_java_home }}
+
+# ── Logging ────────────────────────────────────────────────
+env.log.dir: {{ flink_log_dir }}
+
+# ── Extra config ───────────────────────────────────────────
+{% for key, value in flink_extra_config.items() %}
+{{ key }}: {{ value }}
+{% endfor %}

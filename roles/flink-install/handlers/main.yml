@@ -1,0 +1,6 @@
+---
+- name: restart flink component
+  debug:
+    msg: >
+      Config changed on {{ inventory_hostname }}.
+      Run the stop + start playbooks to apply changes.

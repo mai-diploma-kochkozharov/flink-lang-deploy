@@ -1,0 +1,82 @@
+---
+# ============================================================
+#  config-update.yml — обновление конфигов без переустановки
+#
+#  Использование:
+#    # Только раскладка конфигов (без рестарта):
+#    ansible-playbook playbooks/config-update.yml
+#
+#    # Раскладка + rolling-restart:
+#    ansible-playbook playbooks/config-update.yml -e restart=true
+#
+#    # Переопределить параметры:
+#    ansible-playbook playbooks/config-update.yml \
+#      -e flink_taskmanager_memory=16384m \
+#      -e flink_taskmanager_slots=8 \
+#      -e restart=true
+# ============================================================
+
+- name: Update Flink configuration on all nodes
+  hosts: flink_cluster
+  gather_facts: false
+  vars:
+    flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
+    restart: false
+  roles:
+    - role: flink-install
+      flink_install_tasks: config_only    # роль всё равно отработает полностью,
+                                          # но idempotent-шаги не изменят ничего
+
+  post_tasks:
+    - name: Show diff summary
+      debug:
+        msg: >
+          Config deployed to {{ inventory_hostname }}.
+          {% if restart | bool %}Restart will follow.{% else %}
+          Run with -e restart=true to apply via rolling restart.{% endif %}
+
+
+- name: Rolling restart TaskManagers (if requested)
+  hosts: taskmanagers
+  gather_facts: false
+  serial: 1
+  vars:
+    flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
+    restart: false
+  tasks:
+    - name: Restart TaskManager
+      shell: |
+        {{ flink_home }}/bin/taskmanager.sh stop || true
+        sleep 3
+        {{ flink_home }}/bin/taskmanager.sh start
+      when: restart | bool
+
+    - name: Wait for TaskManager to register
+      pause:
+        seconds: 5
+      when: restart | bool
+
+
+- name: Restart JobManager (if requested)
+  hosts: jobmanager
+  gather_facts: false
+  vars:
+    flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
+    restart: false
+  tasks:
+    - name: Restart JobManager
+      shell: |
+        {{ flink_home }}/bin/jobmanager.sh stop || true
+        sleep 3
+        {{ flink_home }}/bin/jobmanager.sh start
+      when: restart | bool
+
+    - name: Wait for JobManager REST API
+      uri:
+        url: "http://{{ inventory_hostname }}:8081/overview"
+        status_code: 200
+      register: jm_health
+      retries: 30
+      delay: 2
+      until: jm_health.status == 200
+      when: restart | bool

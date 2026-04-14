@@ -1,0 +1,61 @@
+---
+# ============================================================
+#  stop.yml — остановка кластера Flink
+#    1) Сначала TaskManagers на всех хостах
+#    2) Затем JobManager на lang33
+# ============================================================
+
+- name: Stop TaskManagers
+  hosts: taskmanagers
+  gather_facts: false
+  vars:
+    flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
+  tasks:
+    - name: Stop TaskManager
+      shell: |
+        {{ flink_home }}/bin/taskmanager.sh stop || true
+      register: tm_stop
+      changed_when: "'Stopping' in tm_stop.stdout"
+
+    - name: Verify TaskManager stopped
+      shell: |
+        ps aux | grep -v grep | grep 'TaskManagerRunner' || true
+      register: tm_check
+      changed_when: false
+
+    - name: Force-kill TaskManager if still running
+      shell: |
+        pkill -f 'TaskManagerRunner' || true
+      when: tm_check.stdout != ""
+
+    - name: TaskManager stopped
+      debug:
+        msg: "TaskManager stopped on {{ inventory_hostname }}"
+
+
+- name: Stop JobManager
+  hosts: jobmanager
+  gather_facts: false
+  vars:
+    flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
+  tasks:
+    - name: Stop JobManager
+      shell: |
+        {{ flink_home }}/bin/jobmanager.sh stop || true
+      register: jm_stop
+      changed_when: "'Stopping' in jm_stop.stdout"
+
+    - name: Verify JobManager stopped
+      shell: |
+        ps aux | grep -v grep | grep 'StandaloneSessionClusterEntrypoint' || true
+      register: jm_check
+      changed_when: false
+
+    - name: Force-kill JobManager if still running
+      shell: |
+        pkill -f 'StandaloneSessionClusterEntrypoint' || true
+      when: jm_check.stdout != ""
+
+    - name: JobManager stopped
+      debug:
+        msg: "JobManager stopped on {{ inventory_hostname }}"

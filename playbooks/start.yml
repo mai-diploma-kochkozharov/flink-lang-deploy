@@ -1,0 +1,66 @@
+---
+# ============================================================
+#  start.yml — запуск кластера Flink
+#    1) JobManager на lang33
+#    2) TaskManager на всех 5 машинах
+# ============================================================
+
+- name: Start JobManager
+  hosts: jobmanager
+  gather_facts: false
+  vars:
+    flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
+  tasks:
+    - name: Check if JobManager is already running
+      shell: |
+        ps aux | grep -v grep | grep 'StandaloneSessionClusterEntrypoint' || true
+      register: jm_status
+      changed_when: false
+
+    - name: Start JobManager process
+      shell: |
+        export FLINK_HOME={{ flink_home }}
+        nohup {{ flink_home }}/bin/jobmanager.sh start > /dev/null 2>&1
+      when: jm_status.stdout == ""
+
+    - name: Wait for JobManager REST API
+      uri:
+        url: "http://{{ inventory_hostname }}:8081/overview"
+        status_code: 200
+      register: jm_health
+      retries: 30
+      delay: 2
+      until: jm_health.status == 200
+
+    - name: JobManager is up
+      debug:
+        msg: "JobManager started on {{ inventory_hostname }} — Web UI at http://{{ inventory_hostname }}:8081"
+
+
+- name: Start TaskManagers
+  hosts: taskmanagers
+  gather_facts: false
+  serial: 1                         # стартуем по одному, чтобы не перегружать JM
+  vars:
+    flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
+  tasks:
+    - name: Check if TaskManager is already running
+      shell: |
+        ps aux | grep -v grep | grep 'TaskManagerRunner' || true
+      register: tm_status
+      changed_when: false
+
+    - name: Start TaskManager process
+      shell: |
+        export FLINK_HOME={{ flink_home }}
+        nohup {{ flink_home }}/bin/taskmanager.sh start > /dev/null 2>&1
+      when: tm_status.stdout == ""
+
+    - name: Wait for TaskManager to register
+      pause:
+        seconds: 5
+      when: tm_status.stdout == ""
+
+    - name: TaskManager started
+      debug:
+        msg: "TaskManager started on {{ inventory_hostname }}"

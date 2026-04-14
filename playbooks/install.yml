@@ -1,0 +1,9 @@
+---
+# ============================================================
+#  install.yml — распаковка дистрибутива и раскладка конфигов
+# ============================================================
+- name: Install Flink on all cluster nodes
+  hosts: flink_cluster
+  gather_facts: true
+  roles:
+    - flink-install
