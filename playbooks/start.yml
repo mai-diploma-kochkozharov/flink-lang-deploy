@@ -17,9 +17,17 @@
       register: jm_status
       changed_when: false
 
+    - name: Check if native hadoop is available
+      stat:
+        path: "{{ flink_home }}/conf/.hadoop-native"
+      register: jm_hadoop_marker
+
     - name: Start JobManager process
       shell: |
         export FLINK_HOME={{ flink_home }}
+        {% if jm_hadoop_marker.stat.exists %}
+        export HADOOP_CLASSPATH=$(hadoop classpath)
+        {% endif %}
         nohup {{ flink_home }}/bin/jobmanager.sh start > /dev/null 2>&1
       when: jm_status.stdout == ""
 
@@ -50,9 +58,17 @@
       register: tm_status
       changed_when: false
 
+    - name: Check if native hadoop is available
+      stat:
+        path: "{{ flink_home }}/conf/.hadoop-native"
+      register: tm_hadoop_marker
+
     - name: Start TaskManager process
       shell: |
         export FLINK_HOME={{ flink_home }}
+        {% if tm_hadoop_marker.stat.exists %}
+        export HADOOP_CLASSPATH=$(hadoop classpath)
+        {% endif %}
         nohup {{ flink_home }}/bin/taskmanager.sh start > /dev/null 2>&1
       when: tm_status.stdout == ""
 

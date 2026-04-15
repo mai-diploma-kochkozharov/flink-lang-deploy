@@ -16,7 +16,7 @@ flink_taskmanager_memory: "8192m"
 flink_taskmanager_slots: 4
 
 # ── Parallelism ────────────────────────────────────────
-flink_parallelism_default: 20          # 5 hosts × 4 slots
+flink_parallelism_default: 20          # 5 TM hosts × 4 slots
 
 # ── HA (выключено по умолчанию) ────────────────────────
 flink_ha_enabled: false

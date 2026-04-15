@@ -1,0 +1,119 @@
+---
+# ============================================================
+#  setup-hadoop.yml — настройка Hadoop-зависимостей на кластере
+#
+#  Логика:
+#    0. Скачивает uber JAR в files/ (если ещё нет)
+#    1. На каждой ноде проверяет `hadoop classpath`
+#    2. Если есть  → создаёт маркер-файл (start.yml выставит HADOOP_CLASSPATH)
+#    3. Если нет   → копирует uber JAR в lib/
+#
+#  Использование:
+#    ansible-playbook playbooks/setup-hadoop.yml
+# ============================================================
+
+
+# ────────────────────────────────────────────────────────
+#  Phase 0: Скачать uber JAR локально (если нужно)
+# ────────────────────────────────────────────────────────
+- name: Download Hadoop uber JAR if missing
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    hadoop_uber_jar: flink-shaded-hadoop-2-uber-2.8.3-10.0.jar
+    hadoop_uber_jar_url: https://repository.apache.org/content/groups/public/org/apache/paimon/paimon-hadoop-shading/2.8.3-10.0/paimon-hadoop-shading-2.8.3-10.0.jar
+    files_dir: "{{ playbook_dir }}/../files"
+  tasks:
+    - name: Ensure files/ directory exists
+      file:
+        path: "{{ files_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Check if uber JAR already downloaded
+      stat:
+        path: "{{ files_dir }}/{{ hadoop_uber_jar }}"
+      register: local_jar
+
+    - name: Download uber JAR from Maven
+      get_url:
+        url: "{{ hadoop_uber_jar_url }}"
+        dest: "{{ files_dir }}/{{ hadoop_uber_jar }}"
+        mode: "0644"
+      when: not local_jar.stat.exists
+
+    - name: Report download status
+      debug:
+        msg: >-
+          {{ hadoop_uber_jar }}:
+          {{ 'already cached in files/'
+             if local_jar.stat.exists
+             else 'downloaded to files/' }}
+
+
+# ────────────────────────────────────────────────────────
+#  Phase 1: Настройка на каждой ноде (автодетект)
+# ────────────────────────────────────────────────────────
+- name: Setup Hadoop dependencies for Flink
+  hosts: flink_cluster
+  gather_facts: false
+  vars:
+    flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
+    hadoop_uber_jar: flink-shaded-hadoop-2-uber-2.8.3-10.0.jar
+  tasks:
+
+    # ── Детект: есть ли hadoop на ноде? ──
+    - name: Check if hadoop command is available
+      shell: command -v hadoop
+      register: hadoop_check
+      changed_when: false
+      failed_when: false
+
+    - name: Report detection result
+      debug:
+        msg: >-
+          {{ inventory_hostname }}:
+          {{ 'Hadoop FOUND → will use HADOOP_CLASSPATH at startup'
+             if hadoop_check.rc == 0
+             else 'Hadoop NOT FOUND → will use uber JAR' }}
+
+    # ── Путь A: Hadoop есть → маркер-файл для start.yml ──
+    - name: Create hadoop-native marker
+      copy:
+        content: "hadoop classpath available on this node"
+        dest: "{{ flink_home }}/conf/.hadoop-native"
+        mode: "0644"
+      when: hadoop_check.rc == 0
+
+    # ── Путь B: Hadoop нет → uber JAR ──
+    - name: Remove marker if hadoop not available
+      file:
+        path: "{{ flink_home }}/conf/.hadoop-native"
+        state: absent
+      when: hadoop_check.rc != 0
+
+    - name: Check if uber JAR already in lib/
+      stat:
+        path: "{{ flink_home }}/lib/{{ hadoop_uber_jar }}"
+      register: uber_stat
+      when: hadoop_check.rc != 0
+
+    - name: Copy uber JAR to lib/
+      copy:
+        src: "{{ playbook_dir }}/../files/{{ hadoop_uber_jar }}"
+        dest: "{{ flink_home }}/lib/{{ hadoop_uber_jar }}"
+        mode: "0644"
+      when:
+        - hadoop_check.rc != 0
+        - not (uber_stat.stat.exists | default(false))
+
+    - name: Report final state
+      debug:
+        msg: >-
+          {{ inventory_hostname }}:
+          {% if hadoop_check.rc == 0 %}
+          Marker .hadoop-native created — start.yml will export HADOOP_CLASSPATH
+          {% else %}
+          {{ hadoop_uber_jar }} deployed to {{ flink_home }}/lib/
+          {% endif %}
