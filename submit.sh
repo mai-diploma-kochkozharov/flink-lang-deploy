@@ -1,0 +1,2 @@
+#!/bin/sh
+ansible-playbook playbooks/submit-job.yml -e job_jar=../paimon-flink-job/target/paimon-hdfs-job-1.0-SNAPSHOT.jar -e job_class=com.example.paimon.PaimonHdfsJob -e job_deps_dir=../paimon-flink-job/target/deps -e 'job_args="--warehouse hdfs://sdp-sigma-dev-hadr/user/kochkozharov/paimon/warehouse"'
