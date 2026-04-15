@@ -47,7 +47,7 @@
     - name: Restart TaskManager
       shell: |
         {{ flink_home }}/bin/taskmanager.sh stop || true
-        sleep 3
+        sleep 1
         {{ flink_home }}/bin/taskmanager.sh start
       when: restart | bool
 
@@ -67,7 +67,7 @@
     - name: Restart JobManager
       shell: |
         {{ flink_home }}/bin/jobmanager.sh stop || true
-        sleep 3
+        sleep 1
         {{ flink_home }}/bin/jobmanager.sh start
       when: restart | bool
 

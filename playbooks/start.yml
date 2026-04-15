@@ -25,9 +25,7 @@
     - name: Start JobManager process
       shell: |
         export FLINK_HOME={{ flink_home }}
-        {% if jm_hadoop_marker.stat.exists %}
         export HADOOP_CLASSPATH=$(hadoop classpath)
-        {% endif %}
         nohup {{ flink_home }}/bin/jobmanager.sh start > /dev/null 2>&1
       when: jm_status.stdout == ""
 
@@ -66,9 +64,7 @@
     - name: Start TaskManager process
       shell: |
         export FLINK_HOME={{ flink_home }}
-        {% if tm_hadoop_marker.stat.exists %}
         export HADOOP_CLASSPATH=$(hadoop classpath)
-        {% endif %}
         nohup {{ flink_home }}/bin/taskmanager.sh start > /dev/null 2>&1
       when: tm_status.stdout == ""
 

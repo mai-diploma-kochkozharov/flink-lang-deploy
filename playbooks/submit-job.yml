@@ -188,7 +188,7 @@
     # ── Формирование команды сабмита ──
     - name: Build and execute flink run command
       shell: |
-        export JAVA_HOME={{ flink_java_home | default('/usr/lib/jvm/java-21') }}
+        export HADOOP_CLASSPATH=$(hadoop classpath)
         export FLINK_HOME={{ flink_home }}
         {{ flink_home }}/bin/flink run \
           -m {{ inventory_hostname }}:8081 \
