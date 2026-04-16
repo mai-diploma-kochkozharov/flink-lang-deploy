@@ -7,7 +7,3 @@
   gather_facts: true
   roles:
     - flink-install
-
-# ── Hadoop: автодетект + uber JAR где нет нативного Hadoop ──
-- name: Setup Hadoop dependencies
-  import_playbook: setup-hadoop.yml

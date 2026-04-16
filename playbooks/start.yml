@@ -17,11 +17,6 @@
       register: jm_status
       changed_when: false
 
-    - name: Check if native hadoop is available
-      stat:
-        path: "{{ flink_home }}/conf/.hadoop-native"
-      register: jm_hadoop_marker
-
     - name: Start JobManager process
       shell: |
         export FLINK_HOME={{ flink_home }}
@@ -55,11 +50,6 @@
         ps aux | grep -v grep | grep 'TaskManagerRunner' || true
       register: tm_status
       changed_when: false
-
-    - name: Check if native hadoop is available
-      stat:
-        path: "{{ flink_home }}/conf/.hadoop-native"
-      register: tm_hadoop_marker
 
     - name: Start TaskManager process
       shell: |
