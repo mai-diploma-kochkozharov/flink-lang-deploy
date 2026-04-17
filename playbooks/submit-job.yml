@@ -210,25 +210,38 @@
           {{ submit_result.stdout }}
 
     # ── Проверка что джоба стартовала ──
-    - name: Wait for job to appear in running jobs
+    - name: Extract JobID from submit output
+      set_fact:
+        _job_id: "{{ submit_result.stdout | regex_search('JobID ([a-f0-9]+)', '\\1') | first }}"
+
+    - name: Fail if JobID not found in submit output
+      assert:
+        that: _job_id is defined and _job_id | length > 0
+        fail_msg: "Не удалось извлечь JobID из вывода flink run"
+
+    - name: Wait for job to reach a known state
       uri:
-        url: "http://{{ inventory_hostname }}:8081/jobs/overview"
+        url: "http://{{ inventory_hostname }}:8081/jobs/{{ _job_id }}"
         status_code: 200
-      register: jobs_overview
+      register: job_status
       retries: 10
       delay: 2
       until: >
-        jobs_overview.json.jobs | default([])
-        | selectattr('state', 'equalto', 'RUNNING')
-        | list | length > 0
+        job_status is succeeded
+        and job_status.json.state | default('') in
+          ['RUNNING', 'FINISHED', 'CREATED', 'RECONCILING', 'RESTARTING']
 
-    - name: Show running jobs
+    - name: Fail if job is in a bad state
+      assert:
+        that: job_status.json.state not in ['FAILED', 'CANCELED', 'SUSPENDED']
+        fail_msg: "Джоба {{ _job_id }} в состоянии {{ job_status.json.state }}"
+
+    - name: Show job status
       debug:
         msg: |
-          Запущенные джобы:
-          {% for job in jobs_overview.json.jobs | selectattr('state', 'equalto', 'RUNNING') %}
-            - {{ job['jid'] }} ({{ job['name'] | default('unnamed') }})
-          {% endfor %}
+          JobID: {{ _job_id }}
+          Состояние: {{ job_status.json.state }}
+          Имя: {{ job_status.json.name | default('unnamed') }}
 
     # ── Очистка ──
     - name: Clean up uploaded JAR
