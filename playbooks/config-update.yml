@@ -35,30 +35,6 @@
           {% if restart | bool %}Restart will follow.{% else %}
           Run with -e restart=true to apply via rolling restart.{% endif %}
 
-
-- name: Rolling restart TaskManagers (if requested)
-  hosts: taskmanagers
-  gather_facts: false
-  serial: 1
-  vars:
-    flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
-    restart: false
-  tasks:
-    - name: Restart TaskManager
-      shell: |
-        export FLINK_HOME={{ flink_home }}
-        export HADOOP_CLASSPATH=$(hadoop classpath)
-        {{ flink_home }}/bin/taskmanager.sh stop || true
-        sleep 1
-        {{ flink_home }}/bin/taskmanager.sh start
-      when: restart | bool
-
-    - name: Wait for TaskManager to register
-      pause:
-        seconds: 5
-      when: restart | bool
-
-
 - name: Restart JobManager (if requested)
   hosts: jobmanager
   gather_facts: false
@@ -83,4 +59,26 @@
       retries: 30
       delay: 2
       until: jm_health.status == 200
+      when: restart | bool
+
+- name: Rolling restart TaskManagers (if requested)
+  hosts: taskmanagers
+  gather_facts: false
+  serial: 1
+  vars:
+    flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
+    restart: false
+  tasks:
+    - name: Restart TaskManager
+      shell: |
+        export FLINK_HOME={{ flink_home }}
+        export HADOOP_CLASSPATH=$(hadoop classpath)
+        {{ flink_home }}/bin/taskmanager.sh stop || true
+        sleep 1
+        {{ flink_home }}/bin/taskmanager.sh start
+      when: restart | bool
+
+    - name: Wait for TaskManager to register
+      pause:
+        seconds: 5
       when: restart | bool
