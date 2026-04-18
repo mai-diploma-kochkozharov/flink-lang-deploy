@@ -27,7 +27,7 @@
       changed_when: false
       failed_when: false
 
-    - name: WARN — renew failed, нужен ручной kinit
+    - name: WARN — renew failed, manual kinit is needed
       debug:
         msg: |
              Renew failed on {{ inventory_hostname }}:
