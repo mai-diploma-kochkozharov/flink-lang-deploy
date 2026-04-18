@@ -1,9 +1,28 @@
 ---
 # ============================================================
 #  stop.yml — остановка кластера Flink
+#    0) SQL Gateway на JM-хосте
 #    1) Сначала TaskManagers на всех хостах
 #    2) Затем JobManager на lang33
 # ============================================================
+
+- name: Stop SQL Gateway
+  hosts: jobmanager
+  gather_facts: false
+  vars:
+    flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
+  tasks:
+    - name: Stop SQL Gateway
+      shell: |
+        {{ flink_home }}/bin/sql-gateway.sh stop || true
+      register: gw_stop
+      changed_when: "'Stopping' in gw_stop.stdout"
+
+    - name: Force-kill SQL Gateway if still running
+      shell: |
+        pkill -f 'SqlGateway' || true
+      changed_when: false
+
 
 - name: Stop TaskManagers
   hosts: taskmanagers

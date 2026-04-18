@@ -69,3 +69,43 @@
     - name: TaskManager started
       debug:
         msg: "TaskManager started on {{ inventory_hostname }}"
+
+
+- name: Start SQL Gateway
+  hosts: jobmanager
+  gather_facts: false
+  vars:
+    flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
+    sql_gateway_port: 8083
+  tasks:
+    - name: Check if SQL Gateway is already running
+      shell: |
+        ps aux | grep -v grep | grep 'SqlGateway' || true
+      register: gw_status
+      changed_when: false
+
+    - name: Start SQL Gateway process
+      shell: |
+        export FLINK_HOME={{ flink_home }}
+        export HADOOP_CLASSPATH=$(hadoop classpath)
+        nohup {{ flink_home }}/bin/sql-gateway.sh start \
+          -Dsql-gateway.endpoint.rest.address=0.0.0.0 \
+          -Dsql-gateway.endpoint.rest.port={{ sql_gateway_port }} \
+          > /dev/null 2>&1
+      when: gw_status.stdout == ""
+
+    - name: Wait for SQL Gateway REST API
+      uri:
+        url: "http://{{ inventory_hostname }}:{{ sql_gateway_port }}/v1/info"
+        status_code: 200
+      register: gw_health
+      retries: 15
+      delay: 2
+      until: gw_health.status == 200
+
+    - name: SQL Gateway is up
+      debug:
+        msg: |
+          SQL Gateway started on {{ inventory_hostname }}:{{ sql_gateway_port }}
+          Для интерактивного TUI запусти локально:
+            ./bin/sql-client.sh
