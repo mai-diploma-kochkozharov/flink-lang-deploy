@@ -18,10 +18,18 @@
       register: gw_stop
       changed_when: "'Stopping' in gw_stop.stdout"
 
+    - name: Check if SQL Gateway is still running
+      shell: |
+        ps -ef | grep -v grep | grep 'org.apache.flink.table.gateway.SqlGateway' || true
+      register: gw_check
+      changed_when: false
+
     - name: Force-kill SQL Gateway if still running
       shell: |
-        pkill -f 'SqlGateway' || true
+        pkill -f 'org.apache.flink.table.gateway.SqlGateway' || true
+      when: gw_check.stdout != ""
       changed_when: false
+      failed_when: false
 
 
 - name: Stop TaskManagers
