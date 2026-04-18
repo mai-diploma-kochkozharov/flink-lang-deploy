@@ -1,0 +1,40 @@
+---
+# ============================================================
+#  krb-renew.yml — продление Kerberos тикета на всех нодах
+#
+#  Делает только kinit -R. Пароль не нужен.
+#  Работает, пока тикет в пределах renew_lifetime (обычно 7 дней).
+#  Когда renew перестанет проходить — сделай kinit руками на каждой
+#  ноде (playbook предупредит).
+#
+#  Использование:
+#    ansible-playbook playbooks/krb-renew.yml
+# ============================================================
+
+- name: Renew Kerberos tickets on all Flink nodes
+  hosts: flink_cluster
+  gather_facts: false
+  tasks:
+    - name: Run kinit -R
+      command: kinit -R
+      register: renew_result
+      changed_when: renew_result.rc == 0
+      failed_when: false
+
+    - name: Show klist
+      command: klist
+      register: klist_result
+      changed_when: false
+      failed_when: false
+
+    - name: WARN — renew failed, нужен ручной kinit
+      debug:
+        msg: |
+             Renew failed on {{ inventory_hostname }}:
+             {{ renew_result.stderr | default('') | trim }}
+      when: renew_result.rc != 0
+
+    - name: Ticket status
+      debug:
+        msg: "{{ klist_result.stdout_lines }}"
+      when: renew_result.rc == 0
