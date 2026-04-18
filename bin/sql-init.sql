@@ -7,6 +7,11 @@
 --  Выполняется автоматически при старте ./bin/sql-client.sh.
 -- ============================================================
 
+-- SQL Gateway стартует только с jar'ами из $FLINK_HOME/lib.
+-- Paimon-коннектор кладётся сабмит-плейбуком в per-job lib-папку,
+-- поэтому подключаем его явно в текущую сессию.
+ADD JAR 'file:///opt/flink-ivkochkozharov/flink-2.2.0/jobs/paimon-hdfs-job-1.0-SNAPSHOT/lib/paimon-flink-2.1-1.3.1.jar';
+
 CREATE CATALOG IF NOT EXISTS paimon_catalog WITH (
   'type'      = 'paimon',
   'warehouse' = 'hdfs:///user/kochkozharov/paimon/warehouse'
