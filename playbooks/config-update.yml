@@ -16,6 +16,8 @@
 #      -e restart=true
 # ============================================================
 
+- import_playbook: krb-renew.yml
+
 - name: Update Flink configuration on all nodes
   hosts: flink_cluster
   gather_facts: false
