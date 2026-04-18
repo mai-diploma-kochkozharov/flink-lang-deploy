@@ -1,9 +1,12 @@
 ---
 # ============================================================
 #  start.yml — запуск кластера Flink
+#    0) Renew Kerberos тикетов на всех нодах (обязательно)
 #    1) JobManager на lang33
 #    2) TaskManager на всех 5 машинах
 # ============================================================
+
+- import_playbook: krb-renew.yml
 
 - name: Start JobManager
   hosts: jobmanager

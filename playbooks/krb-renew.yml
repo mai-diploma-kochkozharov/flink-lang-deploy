@@ -14,6 +14,7 @@
 - name: Renew Kerberos tickets on all Flink nodes
   hosts: flink_cluster
   gather_facts: false
+  any_errors_fatal: true
   tasks:
     - name: Run kinit -R
       command: kinit -R
@@ -38,3 +39,10 @@
       debug:
         msg: "{{ klist_result.stdout_lines }}"
       when: renew_result.rc == 0
+
+    - name: Fail if renew did not succeed on this host
+      fail:
+        msg: >
+          Kerberos renew failed on {{ inventory_hostname }}.
+          Manual kinit is required to continue. Run 'kinit' on this host and then re-run the playbook.
+      when: renew_result.rc != 0
