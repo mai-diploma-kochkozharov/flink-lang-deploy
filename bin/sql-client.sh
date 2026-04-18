@@ -13,7 +13,7 @@ set -euo pipefail
 JM_HOST="${JM_HOST:-lang34.delta.sbrf.ru}"
 GATEWAY_PORT="${GATEWAY_PORT:-8083}"
 FLINK_HOME="${FLINK_HOME:-/opt/flink-ivkochkozharov/flink-2.2.0}"
-SSH_USER="${SSH_USER:-$USER}"
+SSH_USER="${SSH_USER:-ivkochkozharov}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INIT_SQL_LOCAL="${SCRIPT_DIR}/sql-init.sql"
