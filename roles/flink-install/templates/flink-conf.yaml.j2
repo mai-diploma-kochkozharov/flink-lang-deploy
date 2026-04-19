@@ -48,6 +48,15 @@ env.java.opts: >-
   --add-opens java.base/sun.security.ssl=ALL-UNNAMED
   --add-opens java.security.jgss/sun.security.krb5=ALL-UNNAMED
 
+{% if flink_s3_enabled %}
+# ── S3 (Ozone) ─────────────────────────────────────────────
+# Конфиг для flink-s3-fs-hadoop плагина. Маппится на fs.s3a.* ключи Hadoop.
+s3.endpoint: {{ flink_s3_endpoint }}
+s3.access-key: {{ flink_s3_access_key }}
+s3.secret-key: {{ flink_s3_secret_key }}
+s3.path.style.access: {{ flink_s3_path_style_access | string | lower }}
+{% endif %}
+
 # ── Extra config ───────────────────────────────────────────
 {% for key, value in flink_extra_config.items() %}
 {{ key }}: {{ value }}

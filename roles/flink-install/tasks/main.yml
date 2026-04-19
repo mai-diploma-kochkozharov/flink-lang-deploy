@@ -68,6 +68,21 @@
     state: directory
     mode: "0755"
 
+# ── 5. S3 (Ozone) filesystem plugin ──────────────────────
+- name: Ensure s3-fs-hadoop plugin directory exists
+  file:
+    path: "{{ flink_home }}/plugins/s3-fs-hadoop"
+    state: directory
+    mode: "0755"
+  when: flink_s3_enabled | bool
+
+- name: Download flink-s3-fs-hadoop plugin from Maven Central
+  get_url:
+    url: "https://repo1.maven.org/maven2/org/apache/flink/flink-s3-fs-hadoop/{{ flink_version }}/flink-s3-fs-hadoop-{{ flink_version }}.jar"
+    dest: "{{ flink_home }}/plugins/s3-fs-hadoop/flink-s3-fs-hadoop-{{ flink_version }}.jar"
+    mode: "0644"
+  when: flink_s3_enabled | bool
+
 - name: Clean up archive from /tmp
   file:
     path: "/tmp/{{ flink_archive }}"
