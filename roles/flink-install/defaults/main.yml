@@ -14,7 +14,7 @@ flink_jobmanager_web_port: 8081
 flink_jobmanager_memory: "4096m"
 flink_taskmanager_memory: "8192m"
 flink_taskmanager_metaspace_size: "1024m"   # janino-codegen из paimon 1.4.0 упирается в дефолт 256m
-flink_taskmanager_slots: 5
+flink_taskmanager_slots: 10
 
 # ── Parallelism ────────────────────────────────────────
 flink_parallelism_default: 20          # 5 TM hosts × 4 slots
