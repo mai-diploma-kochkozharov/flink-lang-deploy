@@ -69,6 +69,17 @@
     mode: "0755"
 
 # ── 5. S3 (Ozone) filesystem plugin ──────────────────────
+# На нодах кластера нет интернета: сначала качаем jar на контроллер в files/,
+# затем копируем с локальной тачки на все ноды.
+- name: Download flink-s3-fs-hadoop plugin to local files/ (controller)
+  get_url:
+    url: "https://repo1.maven.org/maven2/org/apache/flink/flink-s3-fs-hadoop/{{ flink_version }}/flink-s3-fs-hadoop-{{ flink_version }}.jar"
+    dest: "{{ playbook_dir }}/../files/flink-s3-fs-hadoop-{{ flink_version }}.jar"
+    mode: "0644"
+  delegate_to: localhost
+  run_once: true
+  when: flink_s3_enabled | bool
+
 - name: Ensure s3-fs-hadoop plugin directory exists
   file:
     path: "{{ flink_home }}/plugins/s3-fs-hadoop"
@@ -76,9 +87,9 @@
     mode: "0755"
   when: flink_s3_enabled | bool
 
-- name: Download flink-s3-fs-hadoop plugin from Maven Central
-  get_url:
-    url: "https://repo1.maven.org/maven2/org/apache/flink/flink-s3-fs-hadoop/{{ flink_version }}/flink-s3-fs-hadoop-{{ flink_version }}.jar"
+- name: Copy flink-s3-fs-hadoop plugin to cluster node
+  copy:
+    src: "{{ playbook_dir }}/../files/flink-s3-fs-hadoop-{{ flink_version }}.jar"
     dest: "{{ flink_home }}/plugins/s3-fs-hadoop/flink-s3-fs-hadoop-{{ flink_version }}.jar"
     mode: "0644"
   when: flink_s3_enabled | bool
