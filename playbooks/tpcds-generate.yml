@@ -217,11 +217,25 @@
       changed_when: false
       tags: [upload]
 
+    - name: Ensure S3 target prefix exists (hadoop fs -mkdir -p)
+      shell: |
+        set -euo pipefail
+        export HADOOP_CLASSPATH=$(hadoop classpath)
+        hadoop fs \
+          -Dfs.s3a.endpoint={{ flink_s3_endpoint }} \
+          -Dfs.s3a.access.key={{ flink_s3_access_key }} \
+          -Dfs.s3a.secret.key={{ flink_s3_secret_key }} \
+          -Dfs.s3a.path.style.access=true \
+          -Dfs.s3a.connection.ssl.enabled=false \
+          -mkdir -p {{ _s3_target }}
+      tags: [upload]
+
     - name: Upload CSV directories to S3 (hadoop fs -put)
       shell: |
         set -euo pipefail
         export HADOOP_CLASSPATH=$(hadoop classpath)
-        # Заливаем таблицу за таблицей (удобнее для логов и возможности прервать).
+        # Каждую таблицу кладём под именованный dest (не "/"), чтобы -put
+        # не требовал существования target как директории-ведра.
         for table in {{ _tpcds_tables | join(' ') }}; do
           if [ -d {{ _raw_subdir }}/$table ] && [ -n "$(ls -A {{ _raw_subdir }}/$table 2>/dev/null)" ]; then
             echo ">>> Uploading $table"
@@ -231,7 +245,7 @@
               -Dfs.s3a.secret.key={{ flink_s3_secret_key }} \
               -Dfs.s3a.path.style.access=true \
               -Dfs.s3a.connection.ssl.enabled=false \
-              -put -f {{ _raw_subdir }}/$table {{ _s3_target }}/
+              -put -f {{ _raw_subdir }}/$table {{ _s3_target }}/$table
           fi
         done
       when: '"MISSING" in _s3_state.stdout'
