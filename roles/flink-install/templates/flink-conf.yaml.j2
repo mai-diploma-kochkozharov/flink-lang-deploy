@@ -15,6 +15,7 @@ rest.bind-address: 0.0.0.0
 
 # ── TaskManager ────────────────────────────────────────────
 taskmanager.memory.process.size: {{ flink_taskmanager_memory }}
+taskmanager.memory.jvm-metaspace.size: {{ flink_taskmanager_metaspace_size }}
 taskmanager.numberOfTaskSlots: {{ flink_taskmanager_slots }}
 taskmanager.bind-host: 0.0.0.0
 taskmanager.host: {{ inventory_hostname }}
