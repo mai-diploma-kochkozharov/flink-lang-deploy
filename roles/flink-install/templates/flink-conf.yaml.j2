@@ -55,6 +55,8 @@ s3.endpoint: {{ flink_s3_endpoint }}
 s3.access-key: {{ flink_s3_access_key }}
 s3.secret-key: {{ flink_s3_secret_key }}
 s3.path.style.access: {{ flink_s3_path_style_access | string | lower }}
+# HTTP endpoint — TLS не нужен, иначе S3A зависает на handshake.
+s3.connection.ssl.enabled: {{ flink_s3_endpoint.startswith('https://') | string | lower }}
 {% endif %}
 
 # ── Extra config ───────────────────────────────────────────
