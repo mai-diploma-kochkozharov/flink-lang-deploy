@@ -1,0 +1,267 @@
+---
+# ============================================================
+#  tpcds-generate.yml — локальная генерация TPC-DS через
+#  dsdgen на lang36, организация файлов по таблицам, прямой
+#  upload на S3 (Ozone). HDFS не используется.
+#
+#  Источник бинарника — ververica/tpc-ds-generators (pre-built
+#  dsdgen_linux + tpcds.idx). Интернет нужен ТОЛЬКО на локальной
+#  машине — ноды получат файлы через ansible copy.
+#
+#  Параметры:
+#    tpcds_scale        — масштаб в GB. Default: 100.
+#    tpcds_parallel     — число параллельных dsdgen-процессов. Default: 16.
+#    tpcds_s3_bucket    — бакет. Default: paimon-b2c.
+#    tpcds_s3_prefix    — префикс. Default: tpcds-{{ scale }}-raw.
+#    tpcds_datagen_host — хост-генератор. Default: lang36.delta.sbrf.ru.
+#
+#  S3-доступ:
+#    flink_s3_endpoint, flink_s3_access_key, flink_s3_secret_key
+#
+#  Пример:
+#    ansible-playbook playbooks/tpcds-generate.yml \
+#      -e tpcds_scale=100 \
+#      -e flink_s3_endpoint=http://tpgds-rowan0001.delta.sbrf.ru:8333 \
+#      -e flink_s3_access_key=access_key2 \
+#      -e flink_s3_secret_key=secret_key2
+#
+#  Идемпотентность:
+#    - Генерация пропускается если /opt/flink-ivkochkozharov/tpcds-data/<scale>/.generation-complete уже есть.
+#    - Upload идёт через `hadoop fs -put -f` (перезатирает). Для пропуска загрузки используй
+#      --skip-tags upload.
+#
+#  Итоговый layout на S3:
+#    s3a://paimon-b2c/tpcds-100-raw/
+#      store_sales/store_sales_1_16.dat ...
+#      catalog_sales/...
+#      customer/...
+#      (все 24 таблицы TPC-DS)
+# ============================================================
+
+- import_playbook: krb-renew.yml
+
+
+# ──────────────────────────────────────────────────────────
+#  Phase 0: качаем dsdgen_linux + tpcds.idx на контроллер
+# ──────────────────────────────────────────────────────────
+- name: Download TPC-DS generator binaries to controller
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    # URL-ы и MD5 из flink-end-to-end-tests/flink-tpcds-test/tpcds-tool/data_generator.sh
+    dsdgen_linux_url: https://raw.githubusercontent.com/ververica/tpc-ds-generators/f5d6c11681637908ce15d697ae683676a5383641/generators/dsdgen_linux
+    tpcds_idx_url: https://raw.githubusercontent.com/ververica/tpc-ds-generators/f5d6c11681637908ce15d697ae683676a5383641/generators/tpcds.idx
+    _files_dir: "{{ playbook_dir }}/../files"
+  tags: download
+  tasks:
+    - name: Ensure files/ exists
+      file:
+        path: "{{ _files_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Download dsdgen_linux
+      get_url:
+        url: "{{ dsdgen_linux_url }}"
+        dest: "{{ _files_dir }}/dsdgen_linux"
+        mode: "0755"
+        checksum: "md5:299216f04d490a154f632b0b9b842241"
+
+    - name: Download tpcds.idx
+      get_url:
+        url: "{{ tpcds_idx_url }}"
+        dest: "{{ _files_dir }}/tpcds.idx"
+        mode: "0644"
+        checksum: "md5:376152c9aa150c59a386b148f954c47d"
+
+
+# ──────────────────────────────────────────────────────────
+#  Phase 1: генерация + upload на S3
+# ──────────────────────────────────────────────────────────
+- name: Generate TPC-DS CSV on lang36 and upload to S3
+  hosts: "{{ tpcds_datagen_host | default('lang36.delta.sbrf.ru') }}"
+  gather_facts: false
+  vars:
+    tpcds_scale: 100
+    # Ноды lang34/lang36 — 80 CPU. 32 процесса dsdgen = нормальная загрузка
+    # без переусердствования (context switching / I/O contention). Можно
+    # поднять до 48-64 если нужна быстрая генерация и диски тянут.
+    tpcds_parallel: 32
+    tpcds_s3_bucket: paimon-b2c
+    tpcds_s3_prefix: "tpcds-{{ tpcds_scale }}-raw"
+    _tpcds_dir: /opt/flink-ivkochkozharov/tpcds-data
+    _raw_subdir: "{{ _tpcds_dir }}/{{ tpcds_scale }}"
+    _s3_target: "s3a://{{ tpcds_s3_bucket }}/{{ tpcds_s3_prefix }}"
+    _tpcds_tables:
+      - store_sales
+      - store_returns
+      - catalog_sales
+      - catalog_returns
+      - web_sales
+      - web_returns
+      - inventory
+      - call_center
+      - catalog_page
+      - customer
+      - customer_address
+      - customer_demographics
+      - date_dim
+      - household_demographics
+      - income_band
+      - item
+      - promotion
+      - reason
+      - ship_mode
+      - store
+      - time_dim
+      - warehouse
+      - web_page
+      - web_site
+  tasks:
+
+    # ── Раскладка dsdgen и рабочей директории ──
+    - name: Ensure tpcds-data directory exists
+      file:
+        path: "{{ _raw_subdir }}"
+        state: directory
+        mode: "0755"
+      tags: [generate, upload]
+
+    - name: Upload dsdgen_linux binary
+      copy:
+        src: "{{ playbook_dir }}/../files/dsdgen_linux"
+        dest: "{{ _tpcds_dir }}/dsdgen_linux"
+        mode: "0755"
+      tags: [generate]
+
+    - name: Upload tpcds.idx (ДОЛЖЕН лежать рядом с бинарником)
+      copy:
+        src: "{{ playbook_dir }}/../files/tpcds.idx"
+        dest: "{{ _tpcds_dir }}/tpcds.idx"
+        mode: "0644"
+      tags: [generate]
+
+    # ── Генерация ──
+    - name: Check if generation already complete
+      stat:
+        path: "{{ _raw_subdir }}/.generation-complete"
+      register: _gen_marker
+      tags: [generate]
+
+    - name: Generate TPC-DS scale {{ tpcds_scale }}GB (dsdgen -PARALLEL {{ tpcds_parallel }})
+      shell: |
+        set -euo pipefail
+        cd {{ _tpcds_dir }}
+        # Запускаем N процессов с разными CHILD, каждый пишет свой чанк.
+        # dsdgen имя выходного файла — "<table>_<child>_<parallel>.dat".
+        for i in $(seq 1 {{ tpcds_parallel }}); do
+          ./dsdgen_linux \
+            -SCALE {{ tpcds_scale }} \
+            -FORCE Y \
+            -DIR {{ _raw_subdir }} \
+            -PARALLEL {{ tpcds_parallel }} \
+            -CHILD $i > {{ _raw_subdir }}/dsdgen_$i.log 2>&1 &
+        done
+        wait
+        touch {{ _raw_subdir }}/.generation-complete
+      when: not _gen_marker.stat.exists
+      async: 14400    # 4 часа лимит (scale=100 обычно 20-40 мин)
+      poll: 60
+      tags: [generate]
+
+    - name: Show generated data size
+      shell: du -sh {{ _raw_subdir }}
+      register: _raw_size
+      changed_when: false
+      tags: [generate, upload]
+
+    - name: Report local data
+      debug:
+        msg: "Raw data: {{ _raw_size.stdout }} at {{ _raw_subdir }}"
+      tags: [generate, upload]
+
+    # ── Организация файлов по таблицам ──
+    # Flink filesystem connector читает все файлы в path-директории.
+    # dsdgen кладёт все .dat в один _raw_subdir/, нам нужно разнести по таблицам:
+    # _raw_subdir/store_sales/store_sales_*_16.dat, и т.п.
+    - name: Organize CSV into per-table subdirs
+      shell: |
+        set -euo pipefail
+        cd {{ _raw_subdir }}
+        for table in {{ _tpcds_tables | join(' ') }}; do
+          mkdir -p ./$table
+          # shopt nullglob — чтобы глоб не ругался на пустые совпадения
+          shopt -s nullglob
+          for f in ${table}_*.dat; do
+            mv -n "$f" "./$table/" || true
+          done
+        done
+      args:
+        executable: /bin/bash
+      tags: [generate, upload]
+
+    # ── Загрузка на S3 ──
+    - name: Check if S3 target already populated
+      shell: |
+        export HADOOP_CLASSPATH=$(hadoop classpath)
+        hadoop fs \
+          -Dfs.s3a.endpoint={{ flink_s3_endpoint }} \
+          -Dfs.s3a.access.key={{ flink_s3_access_key }} \
+          -Dfs.s3a.secret.key={{ flink_s3_secret_key }} \
+          -Dfs.s3a.path.style.access=true \
+          -Dfs.s3a.connection.ssl.enabled=false \
+          -test -d {{ _s3_target }}/store_sales \
+          && echo "EXISTS" || echo "MISSING"
+      register: _s3_state
+      changed_when: false
+      tags: [upload]
+
+    - name: Upload CSV directories to S3 (hadoop fs -put)
+      shell: |
+        set -euo pipefail
+        export HADOOP_CLASSPATH=$(hadoop classpath)
+        # Заливаем таблицу за таблицей (удобнее для логов и возможности прервать).
+        for table in {{ _tpcds_tables | join(' ') }}; do
+          if [ -d {{ _raw_subdir }}/$table ] && [ -n "$(ls -A {{ _raw_subdir }}/$table 2>/dev/null)" ]; then
+            echo ">>> Uploading $table"
+            hadoop fs \
+              -Dfs.s3a.endpoint={{ flink_s3_endpoint }} \
+              -Dfs.s3a.access.key={{ flink_s3_access_key }} \
+              -Dfs.s3a.secret.key={{ flink_s3_secret_key }} \
+              -Dfs.s3a.path.style.access=true \
+              -Dfs.s3a.connection.ssl.enabled=false \
+              -put -f {{ _raw_subdir }}/$table {{ _s3_target }}/
+          fi
+        done
+      when: '"MISSING" in _s3_state.stdout'
+      async: 14400
+      poll: 60
+      tags: [upload]
+
+    # ── Проверка и отчёт ──
+    - name: List S3 layout (top-level tables)
+      shell: |
+        export HADOOP_CLASSPATH=$(hadoop classpath)
+        hadoop fs \
+          -Dfs.s3a.endpoint={{ flink_s3_endpoint }} \
+          -Dfs.s3a.access.key={{ flink_s3_access_key }} \
+          -Dfs.s3a.secret.key={{ flink_s3_secret_key }} \
+          -Dfs.s3a.path.style.access=true \
+          -Dfs.s3a.connection.ssl.enabled=false \
+          -ls {{ _s3_target }}
+      register: _s3_listing
+      changed_when: false
+      tags: [upload]
+
+    - name: Summary
+      debug:
+        msg: |
+          ═══════════════════════════════════════════
+           TPC-DS scale {{ tpcds_scale }} — готово
+          ═══════════════════════════════════════════
+          Local:   {{ _raw_subdir }}  ({{ _raw_size.stdout }})
+          S3:      {{ _s3_target }}
+
+          {{ _s3_listing.stdout }}
+      tags: [upload]
