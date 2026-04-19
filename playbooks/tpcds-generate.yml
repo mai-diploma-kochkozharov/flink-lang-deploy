@@ -75,6 +75,15 @@
         mode: "0644"
         checksum: "md5:376152c9aa150c59a386b148f954c47d"
 
+    # mc — minio client. Один статический Go-бинарник, S3-совместимый,
+    # без python-зависимостей. Используем вместо hadoop fs для заливки,
+    # т.к. hadoop fs ломается об Ozone DIROBJ-семантику.
+    - name: Download mc (minio client) linux-amd64
+      get_url:
+        url: https://dl.min.io/client/mc/release/linux-amd64/mc
+        dest: "{{ _files_dir }}/mc"
+        mode: "0755"
+
 
 # ──────────────────────────────────────────────────────────
 #  Phase 1: генерация + upload на S3
@@ -201,72 +210,41 @@
         executable: /bin/bash
       tags: [generate, upload]
 
-    # ── Загрузка на S3 ──
-    - name: Check if S3 target already populated
+    # ── Загрузка на S3 через mc (minio client) ──
+    # hadoop fs не работает с Ozone — S3A требует parent-directory и
+    # ломается об DIROBJ-семантику Ozone. mc просто PUT-ит объекты.
+    - name: Upload mc binary to datagen host
+      copy:
+        src: "{{ playbook_dir }}/../files/mc"
+        dest: "{{ _tpcds_dir }}/mc"
+        mode: "0755"
+      tags: [upload]
+
+    - name: Configure mc alias for Ozone S3
       shell: |
-        export HADOOP_CLASSPATH=$(hadoop classpath)
-        hadoop fs \
-          -Dfs.s3a.endpoint={{ flink_s3_endpoint }} \
-          -Dfs.s3a.access.key={{ flink_s3_access_key }} \
-          -Dfs.s3a.secret.key={{ flink_s3_secret_key }} \
-          -Dfs.s3a.path.style.access=true \
-          -Dfs.s3a.connection.ssl.enabled=false \
-          -test -d {{ _s3_target }}/store_sales \
-          && echo "EXISTS" || echo "MISSING"
-      register: _s3_state
+        set -euo pipefail
+        {{ _tpcds_dir }}/mc alias set ozone \
+          {{ flink_s3_endpoint }} \
+          {{ flink_s3_access_key }} \
+          {{ flink_s3_secret_key }} \
+          --api s3v4 \
+          --path on
       changed_when: false
       tags: [upload]
 
-    # Ozone FSO создаёт на mkdir «DIROBJ» — объект без слеша с MIME x-directory.
-    # S3A его видит как файл, и `put` потом падает на проверке parent. Обходим:
-    # 1) удаляем DIROBJ если он есть (оставшийся от прошлых попыток),
-    # 2) кладём обычный файл-ребёнок .init — тогда S3A видит префикс как
-    #    implicit directory (по наличию детей в LIST), и parent-check проходит.
-    - name: Remove any stale DIROBJ at target prefix
-      shell: |
-        export HADOOP_CLASSPATH=$(hadoop classpath)
-        hadoop fs \
-          -Dfs.s3a.endpoint={{ flink_s3_endpoint }} \
-          -Dfs.s3a.access.key={{ flink_s3_access_key }} \
-          -Dfs.s3a.secret.key={{ flink_s3_secret_key }} \
-          -Dfs.s3a.path.style.access=true \
-          -Dfs.s3a.connection.ssl.enabled=false \
-          -rm -r -skipTrash {{ _s3_target }} 2>/dev/null || true
-      changed_when: false
-      tags: [upload]
-
-    - name: Create implicit-directory marker (touchz .init)
+    - name: Upload CSV directories to S3 via mc mirror
       shell: |
         set -euo pipefail
-        export HADOOP_CLASSPATH=$(hadoop classpath)
-        hadoop fs \
-          -Dfs.s3a.endpoint={{ flink_s3_endpoint }} \
-          -Dfs.s3a.access.key={{ flink_s3_access_key }} \
-          -Dfs.s3a.secret.key={{ flink_s3_secret_key }} \
-          -Dfs.s3a.path.style.access=true \
-          -Dfs.s3a.connection.ssl.enabled=false \
-          -touchz {{ _s3_target }}/.init
-      tags: [upload]
-
-    - name: Upload CSV directories to S3 (hadoop fs -put)
-      shell: |
-        set -euo pipefail
-        export HADOOP_CLASSPATH=$(hadoop classpath)
-        # Каждую таблицу кладём под именованный dest (не "/"), чтобы -put
-        # не требовал существования target как директории-ведра.
+        # mc mirror работает как rsync: уже загруженные файлы пропускает.
+        # --overwrite заставит перезаписать если размер/mtime разошлись.
         for table in {{ _tpcds_tables | join(' ') }}; do
           if [ -d {{ _raw_subdir }}/$table ] && [ -n "$(ls -A {{ _raw_subdir }}/$table 2>/dev/null)" ]; then
             echo ">>> Uploading $table"
-            hadoop fs \
-              -Dfs.s3a.endpoint={{ flink_s3_endpoint }} \
-              -Dfs.s3a.access.key={{ flink_s3_access_key }} \
-              -Dfs.s3a.secret.key={{ flink_s3_secret_key }} \
-              -Dfs.s3a.path.style.access=true \
-              -Dfs.s3a.connection.ssl.enabled=false \
-              -put -f {{ _raw_subdir }}/$table {{ _s3_target }}/$table
+            {{ _tpcds_dir }}/mc mirror --overwrite \
+              {{ _raw_subdir }}/$table/ \
+              ozone/{{ tpcds_s3_bucket }}/{{ tpcds_s3_prefix }}/$table/
           fi
         done
-      when: '"MISSING" in _s3_state.stdout'
       async: 14400
       poll: 60
       tags: [upload]
@@ -274,14 +252,7 @@
     # ── Проверка и отчёт ──
     - name: List S3 layout (top-level tables)
       shell: |
-        export HADOOP_CLASSPATH=$(hadoop classpath)
-        hadoop fs \
-          -Dfs.s3a.endpoint={{ flink_s3_endpoint }} \
-          -Dfs.s3a.access.key={{ flink_s3_access_key }} \
-          -Dfs.s3a.secret.key={{ flink_s3_secret_key }} \
-          -Dfs.s3a.path.style.access=true \
-          -Dfs.s3a.connection.ssl.enabled=false \
-          -ls {{ _s3_target }}
+        {{ _tpcds_dir }}/mc ls ozone/{{ tpcds_s3_bucket }}/{{ tpcds_s3_prefix }}/
       register: _s3_listing
       changed_when: false
       tags: [upload]
