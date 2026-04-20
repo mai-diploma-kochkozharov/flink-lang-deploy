@@ -108,26 +108,24 @@
             state: directory
             mode: "0755"
 
-        - name: Find dependency JARs locally
-          find:
-            paths: "{{ playbook_dir }}/../{{ job_deps_dir }}"
-            patterns: "*.jar"
-          delegate_to: localhost
-          run_once: true
-          register: dep_jars
-
-        - name: Copy dependency JARs to all nodes
-          copy:
-            src: "{{ item.path }}"
-            dest: "{{ _deps_remote_dir }}/{{ item.path | basename }}"
-            mode: "0644"
-          loop: "{{ dep_jars.files }}"
-          loop_control:
-            label: "{{ item.path | basename }}"
+        - name: Sync dependency JARs to all nodes
+          synchronize:
+            src: "{{ playbook_dir }}/../{{ job_deps_dir }}/"
+            dest: "{{ _deps_remote_dir }}/"
+            delete: true
+            recursive: true
+            times: true
+            checksum: false
+            rsync_opts:
+              - "--include=*.jar"
+              - "--include=*/"
+              - "--exclude=*"
+              - "--chmod=F0644,D0755"
+          register: sync_result
 
         - name: Report distributed deps
           debug:
-            msg: "Скопировано {{ dep_jars.files | length }} JAR(ов) в {{ _deps_remote_dir }} на {{ inventory_hostname }}"
+            msg: "Синхронизация {{ job_deps_dir }} → {{ _deps_remote_dir }} на {{ inventory_hostname }} завершена"
 
 
 # ────────────────────────────────────────────────────────
