@@ -14,6 +14,11 @@ flink_jobmanager_web_port: 8081
 flink_jobmanager_memory: "4096m"
 flink_taskmanager_memory: "8192m"
 flink_taskmanager_metaspace_size: "1024m"   # janino-codegen из paimon 1.4.0 упирается в дефолт 256m
+# Vortex/arrow на чтении аллоцирует много off-heap (batched reads, decompression buffers).
+# Дефолт task.off-heap.size=0 приводит к OOM "Can't allocate enough direct buffer for batch
+# shuffle read buffer pool". Ставим 1GB per-TM — хватит vortex-у и при этом не съест всё
+# у Flink-овского network/shuffle pool.
+flink_taskmanager_task_off_heap_size: "1024m"
 flink_taskmanager_slots: 10
 
 # ── Parallelism ────────────────────────────────────────
