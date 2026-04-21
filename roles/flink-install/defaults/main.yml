@@ -45,5 +45,10 @@ flink_s3_access_key: ""
 flink_s3_secret_key: ""
 flink_s3_path_style_access: true
 
+# ── Hadoop FS delegation tokens ────────────────────────
+# Flink пытается на старте JM получить HDFS delegation token. При упавшем NameNode
+# это висит в retry и JM не стартует. Для S3-only workload токены HDFS не нужны.
+flink_hadoopfs_token_enabled: false
+
 # ── Extra flink-conf.yaml entries (dict) ───────────────
 flink_extra_config: {}

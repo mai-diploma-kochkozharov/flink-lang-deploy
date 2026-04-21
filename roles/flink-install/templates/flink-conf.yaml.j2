@@ -49,6 +49,12 @@ env.java.opts: >-
   --add-opens java.base/sun.security.ssl=ALL-UNNAMED
   --add-opens java.security.jgss/sun.security.krb5=ALL-UNNAMED
 
+{% if not flink_hadoopfs_token_enabled %}
+# ── Kerberos / Delegation tokens ───────────────────────────
+# Отключаем HDFS delegation token provider чтобы JM не висел на NameNode при старте.
+security.delegation.token.provider.hadoopfs.enabled: false
+{% endif %}
+
 {% if flink_s3_enabled %}
 # ── S3 (Ozone) ─────────────────────────────────────────────
 # Конфиг для flink-s3-fs-hadoop плагина. Маппится на fs.s3a.* ключи Hadoop.
