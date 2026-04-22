@@ -194,15 +194,21 @@
     # Flink filesystem connector читает все файлы в path-директории.
     # dsdgen кладёт все .dat в один _raw_subdir/, нам нужно разнести по таблицам:
     # _raw_subdir/store_sales/store_sales_*_16.dat, и т.п.
+    #
+    # ВАЖНО: имена таблиц в TPC-DS префиксно коллизируют — customer vs
+    # customer_demographics, store vs store_sales, catalog vs catalog_returns.
+    # Naивный глоб ${table}_*.dat для короткого имени сгребает чужие файлы.
+    # Фикс: extglob с точным паттерном `<table>_<число>_<число>.dat`.
     - name: Organize CSV into per-table subdirs
       shell: |
         set -euo pipefail
+        shopt -s extglob nullglob
         cd {{ _raw_subdir }}
         for table in {{ _tpcds_tables | join(' ') }}; do
           mkdir -p ./$table
-          # shopt nullglob — чтобы глоб не ругался на пустые совпадения
-          shopt -s nullglob
-          for f in ${table}_*.dat; do
+          # Паттерн: table_<digits>_<digits>.dat — матчит только child_parallel-ные
+          # чанки именно этой таблицы, без захвата префиксно-более-длинных имён.
+          for f in ${table}_+([0-9])_+([0-9]).dat; do
             mv -n "$f" "./$table/" || true
           done
         done

@@ -55,6 +55,14 @@ env.java.opts: >-
 security.delegation.token.provider.hadoopfs.enabled: false
 {% endif %}
 
+# ── Classloader leak tolerance ────────────────────────────
+# Hadoop-aws S3A через commons-logging держит classloader user-code в static field
+# HTTP connection pool. При последовательных job-ах (как наш TPC-DS load: 24 INSERT-а)
+# после первой job Flink закрывает user classloader, следующая падает:
+# "IllegalStateException: Trying to access closed classloader".
+# Отключаем строгий check — утечка классической library issue, не наш баг.
+classloader.check-leaked-classloader: false
+
 {% if flink_s3_enabled %}
 # ── S3 (Ozone) ─────────────────────────────────────────────
 # Конфиг для flink-s3-fs-hadoop плагина. Маппится на fs.s3a.* ключи Hadoop.
