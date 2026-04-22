@@ -7,9 +7,15 @@
 #  SSH ControlMaster-а и продолжает слать INSERT-ы. Эта playbook-а
 #  идёт на JM-хост и убивает процесс.
 #
+#  Почему ps aux, а не pkill/pgrep -f:
+#    pkill/pgrep -f читают /proc/<pid>/cmdline, у которого есть лимит
+#    (~4КБ). У flink run classpath — десятки КБ, и main-класс
+#    org.apache.flink.client.cli.CliFrontend оказывается за пределами
+#    читаемой области → pkill его не находит. `ps aux` же тянет argv
+#    целиком и показывает класс → grep его ловит, PID извлекаем awk.
+#
 #  Параметры:
 #    kill_class     — точный main-класс (default: TpcdsBenchmarkJob).
-#                     Матчится через `pgrep -f`.
 #    kill_all       — true: прибить ЛЮБОЙ CliFrontend (все flink run-ы).
 #
 #  Примеры:
@@ -25,15 +31,12 @@
     kill_class: TpcdsBenchmarkJob
     kill_all: false
   tasks:
-    # Матчим только java-процессы (чтобы pkill не прибил сам себя,
-    # у bash-аргумента с `pkill -f CliFrontend` слово CliFrontend тоже
-    # присутствует — self-matches без фильтра).
-    - name: Find matching flink CLI processes
+    - name: Find matching flink CLI processes (via ps aux)
       shell: |
         if [ "{{ kill_all | bool }}" = "True" ]; then
-          pgrep -f 'java.*CliFrontend' || true
+          ps aux | grep CliFrontend | grep -v grep | awk '{print $2}'
         else
-          pgrep -f 'java.*{{ kill_class }}' || true
+          ps aux | grep CliFrontend | grep '{{ kill_class }}' | grep -v grep | awk '{print $2}'
         fi
       register: _pids
       changed_when: false
@@ -41,16 +44,16 @@
     - name: Show what will be killed
       shell: |
         if [ "{{ kill_all | bool }}" = "True" ]; then
-          pgrep -a -f 'java.*CliFrontend' || echo 'nothing to kill'
+          ps aux | grep CliFrontend | grep -v grep || echo 'nothing to kill'
         else
-          pgrep -a -f 'java.*{{ kill_class }}' || echo 'nothing to kill'
+          ps aux | grep CliFrontend | grep '{{ kill_class }}' | grep -v grep || echo 'nothing to kill'
         fi
       register: _pids_details
       changed_when: false
 
     - name: Plan
       debug:
-        msg: "{{ _pids_details.stdout }}"
+        msg: "{{ _pids_details.stdout_lines }}"
 
     - name: Send SIGTERM, wait 3s, SIGKILL leftovers
       shell: |
@@ -59,10 +62,11 @@
           echo "no PIDs to kill"
           exit 0
         fi
+        echo "killing: $PIDS"
         kill -TERM $PIDS 2>/dev/null || true
         sleep 3
         kill -KILL $PIDS 2>/dev/null || true
-        echo "killed: $PIDS"
+        echo "done: $PIDS"
       when: _pids.stdout | length > 0
       register: _kill_result
 
