@@ -190,11 +190,15 @@
       when: job_deps_dir is not defined
 
     # ── Формирование команды сабмита ──
+    # Запускаем через `exec` чтобы flink run унаследовал PID-ов shell-а:
+    # если Ansible-контрол порвёт SSH (Ctrl-C), SSH закроется → SIGHUP/SIGPIPE
+    # дойдёт до flink run, он умрёт. Без exec у `flink run` отдельный PID и
+    # он orphan-ится как демон.
     - name: Build and execute flink run command
       shell: |
         export HADOOP_CLASSPATH=$(hadoop classpath)
         export FLINK_HOME={{ flink_home }}
-        {{ flink_home }}/bin/flink run \
+        exec {{ flink_home }}/bin/flink run \
           -m {{ inventory_hostname }}:8081 \
           -c {{ job_class }} \
           {% if job_parallelism is defined %}-p {{ job_parallelism }} {% endif %}\
