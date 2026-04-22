@@ -25,37 +25,36 @@
     kill_class: TpcdsBenchmarkJob
     kill_all: false
   tasks:
-    - name: Find matching CliFrontend processes
+    # Матчим только java-процессы, чтобы pkill не прибил сам себя
+    # (наш shell-аргумент `pkill -f CliFrontend` содержит строку CliFrontend
+    # и self-matches без фильтра по процессу).
+    - name: Find matching flink CLI processes
       shell: |
+        set -o pipefail
         if [ "{{ kill_all | bool }}" = "True" ]; then
-          pgrep -a -f CliFrontend || true
+          pattern='java.*CliFrontend'
         else
-          pgrep -a -f "{{ kill_class }}" || true
+          pattern='java.*{{ kill_class }}'
         fi
+        pgrep -a -f "$pattern" || true
       register: _pids
       changed_when: false
 
     - name: Show what will be killed
       debug:
-        msg: "{{ _pids.stdout if _pids.stdout else 'Nothing matches — no CliFrontend/' ~ kill_class ~ ' process found.' }}"
+        msg: "{{ _pids.stdout if _pids.stdout else 'Nothing matches — no flink CLI process found.' }}"
 
-    - name: Kill matching processes (SIGTERM)
-      shell: |
-        if [ "{{ kill_all | bool }}" = "True" ]; then
-          pkill -TERM -f CliFrontend || true
-        else
-          pkill -TERM -f "{{ kill_class }}" || true
-        fi
+    - name: Extract PIDs
+      set_fact:
+        _pid_list: "{{ _pids.stdout_lines | map('regex_search', '^(\\d+)', '\\1') | select('string') | list }}"
+      when: _pids.stdout | length > 0
+
+    - name: Send SIGTERM
+      shell: "kill -TERM {{ _pid_list | join(' ') }}"
       when: _pids.stdout | length > 0
       changed_when: true
 
     - name: Wait 3s then SIGKILL if still alive
-      shell: |
-        sleep 3
-        if [ "{{ kill_all | bool }}" = "True" ]; then
-          pkill -KILL -f CliFrontend 2>/dev/null || true
-        else
-          pkill -KILL -f "{{ kill_class }}" 2>/dev/null || true
-        fi
+      shell: "sleep 3 && kill -KILL {{ _pid_list | join(' ') }} 2>/dev/null || true"
       when: _pids.stdout | length > 0
       changed_when: false
