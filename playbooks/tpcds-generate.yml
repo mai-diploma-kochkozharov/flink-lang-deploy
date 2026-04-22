@@ -216,6 +216,22 @@
         executable: /bin/bash
       tags: [generate, upload]
 
+    # ── Транскод customer: ISO-8859-1 → UTF-8 ──
+    # dsdgen кладёт имена клиентов в ISO-8859-1 (Åsa, Peña, Renée), Flink
+    # csv-reader падает CharConversionException (csv.ignore-parse-errors не
+    # помогает — ошибка на уровне UTF8Reader, ДО парсера).
+    # Остальные таблицы — чистые числа/ASCII, транскодить не нужно.
+    - name: Transcode customer table from ISO-8859-1 to UTF-8 (in-place)
+      shell: |
+        set -euo pipefail
+        cd {{ _raw_subdir }}/customer
+        ls *.dat | xargs -P {{ tpcds_parallel }} -I {} sh -c '
+          iconv -f ISO-8859-1 -t UTF-8 "{}" -o "{}.utf8" && mv "{}.utf8" "{}"
+        '
+      args:
+        executable: /bin/bash
+      tags: [generate, upload]
+
     # ── Загрузка на S3 через mc (minio client) ──
     # hadoop fs не работает с Ozone — S3A требует parent-directory и
     # ломается об DIROBJ-семантику Ozone. mc просто PUT-ит объекты.

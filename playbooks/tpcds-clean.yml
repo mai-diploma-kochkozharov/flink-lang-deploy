@@ -1,0 +1,137 @@
+---
+# ============================================================
+#  tpcds-clean.yml — сносит артефакты TPC-DS на разных этапах
+#
+#  Флаги (все по умолчанию false — ничего не удалится пока явно не попросишь):
+#    clean_local_raw       — снести /opt/flink-ivkochkozharov/tpcds-data/<scale> на lang36
+#    clean_s3_raw          — снести s3://<bucket>/tpcds-<scale>-raw (исходные CSV)
+#    clean_s3_warehouses   — снести s3://<bucket>/tpcds-<scale>-<format> для каждого в clean_formats
+#    clean_all             — shortcut, включает все три
+#
+#  Параметры:
+#    tpcds_scale           — default 100
+#    tpcds_s3_bucket       — default paimon-b2c
+#    tpcds_datagen_host    — default lang36.delta.sbrf.ru (где mc + локальный raw)
+#    clean_formats         — список форматов для warehouses. Default [parquet, orc, vortex]
+#
+#  S3-доступ (для mc):
+#    flink_s3_endpoint, flink_s3_access_key, flink_s3_secret_key
+#
+#  Примеры:
+#    # Всё снести (все три этапа):
+#    ansible-playbook playbooks/tpcds-clean.yml -e clean_all=true \
+#      -e flink_s3_endpoint=http://... -e flink_s3_access_key=... -e flink_s3_secret_key=...
+#
+#    # Только paimon-warehouses, все форматы:
+#    ansible-playbook playbooks/tpcds-clean.yml -e clean_s3_warehouses=true ...
+#
+#    # Только vortex warehouse:
+#    ansible-playbook playbooks/tpcds-clean.yml -e clean_s3_warehouses=true \
+#      -e 'clean_formats=["vortex"]' ...
+#
+#    # Только локальный raw (если места мало на lang36):
+#    ansible-playbook playbooks/tpcds-clean.yml -e clean_local_raw=true
+# ============================================================
+
+- import_playbook: krb-renew.yml
+
+
+- name: Clean TPC-DS artifacts
+  hosts: "{{ tpcds_datagen_host | default('lang36.delta.sbrf.ru') }}"
+  gather_facts: false
+  vars:
+    tpcds_scale: 100
+    tpcds_s3_bucket: paimon-b2c
+    clean_formats:
+      - parquet
+      - orc
+      - vortex
+    clean_local_raw: false
+    clean_s3_raw: false
+    clean_s3_warehouses: false
+    clean_all: false
+    _tpcds_dir: /opt/flink-ivkochkozharov/tpcds-data
+    _raw_subdir: "{{ _tpcds_dir }}/{{ tpcds_scale }}"
+  tasks:
+    - name: Resolve effective flags (clean_all overrides)
+      set_fact:
+        _do_local_raw: "{{ clean_local_raw or clean_all | bool }}"
+        _do_s3_raw: "{{ clean_s3_raw or clean_all | bool }}"
+        _do_s3_warehouses: "{{ clean_s3_warehouses or clean_all | bool }}"
+
+    - name: Summary — what will be cleaned
+      debug:
+        msg: |
+          scale={{ tpcds_scale }}  bucket={{ tpcds_s3_bucket }}  host={{ inventory_hostname }}
+          local_raw       {{ _raw_subdir }}: {{ _do_local_raw }}
+          s3_raw          s3://{{ tpcds_s3_bucket }}/tpcds-{{ tpcds_scale }}-raw: {{ _do_s3_raw }}
+          s3_warehouses   s3://{{ tpcds_s3_bucket }}/tpcds-{{ tpcds_scale }}-{{ '{' + (clean_formats | join(',')) + '}' }}: {{ _do_s3_warehouses }}
+
+    # ── Локальный raw на lang36 ──
+    - name: Remove local raw directory
+      file:
+        path: "{{ _raw_subdir }}"
+        state: absent
+      when: _do_local_raw | bool
+
+    # ── S3 raw + warehouses через mc ──
+    # Алиас настраиваем на лету через env-var MC_HOST_<alias>, чтобы не трогать
+    # ~/.mc/config.json если он уже есть. Требует mc на {{ _tpcds_dir }}/mc
+    # (установлен на стадии tpcds-generate.yml).
+    - name: Check mc binary is available
+      stat:
+        path: "{{ _tpcds_dir }}/mc"
+      register: _mc_stat
+      when: _do_s3_raw | bool or _do_s3_warehouses | bool
+
+    - name: Fail if mc missing
+      fail:
+        msg: >-
+          mc не найден в {{ _tpcds_dir }}/mc. Прогони сначала tpcds-generate.yml
+          (он установит mc) или переопредели _tpcds_dir.
+      when:
+        - _do_s3_raw | bool or _do_s3_warehouses | bool
+        - not _mc_stat.stat.exists
+
+    - name: Configure mc alias for Ozone S3
+      shell: |
+        set -euo pipefail
+        {{ _tpcds_dir }}/mc alias set ozone \
+          {{ flink_s3_endpoint }} \
+          {{ flink_s3_access_key }} \
+          {{ flink_s3_secret_key }} \
+          --api s3v4 \
+          --path on
+      changed_when: false
+      when: _do_s3_raw | bool or _do_s3_warehouses | bool
+
+    # ── S3 raw prefix ──
+    - name: Remove S3 raw prefix (tpcds-{{ tpcds_scale }}-raw)
+      shell: |
+        {{ _tpcds_dir }}/mc rm --recursive --force \
+          ozone/{{ tpcds_s3_bucket }}/tpcds-{{ tpcds_scale }}-raw
+      when: _do_s3_raw | bool
+      register: _rm_raw
+      changed_when: _rm_raw.stdout != ''
+      failed_when:
+        - _rm_raw.rc != 0
+        - '"Object does not exist" not in _rm_raw.stderr'
+
+    # ── S3 warehouses (per format) ──
+    - name: Remove S3 warehouses (per format)
+      shell: |
+        {{ _tpcds_dir }}/mc rm --recursive --force \
+          ozone/{{ tpcds_s3_bucket }}/tpcds-{{ tpcds_scale }}-{{ item }}
+      loop: "{{ clean_formats }}"
+      loop_control:
+        label: "{{ item }}"
+      when: _do_s3_warehouses | bool
+      register: _rm_wh
+      changed_when: _rm_wh.stdout != ''
+      failed_when:
+        - _rm_wh.rc != 0
+        - '"Object does not exist" not in _rm_wh.stderr'
+
+    - name: Final state
+      debug:
+        msg: "Cleanup complete."
