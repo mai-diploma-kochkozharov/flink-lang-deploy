@@ -25,36 +25,47 @@
     kill_class: TpcdsBenchmarkJob
     kill_all: false
   tasks:
-    # Матчим только java-процессы, чтобы pkill не прибил сам себя
-    # (наш shell-аргумент `pkill -f CliFrontend` содержит строку CliFrontend
-    # и self-matches без фильтра по процессу).
+    # Матчим только java-процессы (чтобы pkill не прибил сам себя,
+    # у bash-аргумента с `pkill -f CliFrontend` слово CliFrontend тоже
+    # присутствует — self-matches без фильтра).
     - name: Find matching flink CLI processes
       shell: |
-        set -o pipefail
         if [ "{{ kill_all | bool }}" = "True" ]; then
-          pattern='java.*CliFrontend'
+          pgrep -f 'java.*CliFrontend' || true
         else
-          pattern='java.*{{ kill_class }}'
+          pgrep -f 'java.*{{ kill_class }}' || true
         fi
-        pgrep -a -f "$pattern" || true
       register: _pids
       changed_when: false
 
     - name: Show what will be killed
-      debug:
-        msg: "{{ _pids.stdout if _pids.stdout else 'Nothing matches — no flink CLI process found.' }}"
-
-    - name: Extract PIDs
-      set_fact:
-        _pid_list: "{{ _pids.stdout_lines | map('regex_search', '^(\\d+)', '\\1') | select('string') | list }}"
-      when: _pids.stdout | length > 0
-
-    - name: Send SIGTERM
-      shell: "kill -TERM {{ _pid_list | join(' ') }}"
-      when: _pids.stdout | length > 0
-      changed_when: true
-
-    - name: Wait 3s then SIGKILL if still alive
-      shell: "sleep 3 && kill -KILL {{ _pid_list | join(' ') }} 2>/dev/null || true"
-      when: _pids.stdout | length > 0
+      shell: |
+        if [ "{{ kill_all | bool }}" = "True" ]; then
+          pgrep -a -f 'java.*CliFrontend' || echo 'nothing to kill'
+        else
+          pgrep -a -f 'java.*{{ kill_class }}' || echo 'nothing to kill'
+        fi
+      register: _pids_details
       changed_when: false
+
+    - name: Plan
+      debug:
+        msg: "{{ _pids_details.stdout }}"
+
+    - name: Send SIGTERM, wait 3s, SIGKILL leftovers
+      shell: |
+        PIDS="{{ _pids.stdout_lines | join(' ') }}"
+        if [ -z "$PIDS" ]; then
+          echo "no PIDs to kill"
+          exit 0
+        fi
+        kill -TERM $PIDS 2>/dev/null || true
+        sleep 3
+        kill -KILL $PIDS 2>/dev/null || true
+        echo "killed: $PIDS"
+      when: _pids.stdout | length > 0
+      register: _kill_result
+
+    - name: Kill result
+      debug:
+        msg: "{{ _kill_result.stdout | default('nothing killed') }}"
