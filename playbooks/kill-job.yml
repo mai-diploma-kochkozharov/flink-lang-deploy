@@ -1,0 +1,61 @@
+---
+# ============================================================
+#  kill-job.yml — прибивает висящий flink CLI driver на JM-ноде.
+#
+#  Когда make submit-* запущено в attached mode и ansible прибит
+#  Ctrl-C-ом, удалённый flink run (CliFrontend) остаётся висеть из-за
+#  SSH ControlMaster-а и продолжает слать INSERT-ы. Эта playbook-а
+#  идёт на JM-хост и убивает процесс.
+#
+#  Параметры:
+#    kill_class     — точный main-класс (default: TpcdsBenchmarkJob).
+#                     Матчится через `pgrep -f`.
+#    kill_all       — true: прибить ЛЮБОЙ CliFrontend (все flink run-ы).
+#
+#  Примеры:
+#    ansible-playbook playbooks/kill-job.yml
+#    ansible-playbook playbooks/kill-job.yml -e kill_class=PaimonHdfsJob
+#    ansible-playbook playbooks/kill-job.yml -e kill_all=true
+# ============================================================
+
+- name: Kill flink CLI driver on JobManager
+  hosts: jobmanager
+  gather_facts: false
+  vars:
+    kill_class: TpcdsBenchmarkJob
+    kill_all: false
+  tasks:
+    - name: Find matching CliFrontend processes
+      shell: |
+        if [ "{{ kill_all | bool }}" = "True" ]; then
+          pgrep -a -f CliFrontend || true
+        else
+          pgrep -a -f "{{ kill_class }}" || true
+        fi
+      register: _pids
+      changed_when: false
+
+    - name: Show what will be killed
+      debug:
+        msg: "{{ _pids.stdout if _pids.stdout else 'Nothing matches — no CliFrontend/' ~ kill_class ~ ' process found.' }}"
+
+    - name: Kill matching processes (SIGTERM)
+      shell: |
+        if [ "{{ kill_all | bool }}" = "True" ]; then
+          pkill -TERM -f CliFrontend || true
+        else
+          pkill -TERM -f "{{ kill_class }}" || true
+        fi
+      when: _pids.stdout | length > 0
+      changed_when: true
+
+    - name: Wait 3s then SIGKILL if still alive
+      shell: |
+        sleep 3
+        if [ "{{ kill_all | bool }}" = "True" ]; then
+          pkill -KILL -f CliFrontend 2>/dev/null || true
+        else
+          pkill -KILL -f "{{ kill_class }}" 2>/dev/null || true
+        fi
+      when: _pids.stdout | length > 0
+      changed_when: false

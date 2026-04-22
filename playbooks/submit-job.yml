@@ -190,15 +190,16 @@
       when: job_deps_dir is not defined
 
     # ── Формирование команды сабмита ──
-    # Запускаем через `exec` чтобы flink run унаследовал PID-ов shell-а:
-    # если Ansible-контрол порвёт SSH (Ctrl-C), SSH закроется → SIGHUP/SIGPIPE
-    # дойдёт до flink run, он умрёт. Без exec у `flink run` отдельный PID и
-    # он orphan-ится как демон.
+    # ВАЖНО: Ansible Ctrl-C НЕ УБИВАЕТ этот процесс — ansible.cfg-овский
+    # ControlMaster=auto держит SSH-соединение 60с, и удалённый flink run
+    # не получает SIGHUP. Чтобы прибить висящий CLI driver — используй
+    # отдельный playbook: `ansible-playbook playbooks/kill-job.yml`
+    # или `make kill-tpcds` / `make kill-all`.
     - name: Build and execute flink run command
       shell: |
         export HADOOP_CLASSPATH=$(hadoop classpath)
         export FLINK_HOME={{ flink_home }}
-        exec {{ flink_home }}/bin/flink run \
+        {{ flink_home }}/bin/flink run \
           -m {{ inventory_hostname }}:8081 \
           -c {{ job_class }} \
           {% if job_parallelism is defined %}-p {{ job_parallelism }} {% endif %}\
