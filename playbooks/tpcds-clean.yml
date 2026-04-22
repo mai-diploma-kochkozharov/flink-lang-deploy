@@ -65,7 +65,7 @@
           scale={{ tpcds_scale }}  bucket={{ tpcds_s3_bucket }}  host={{ inventory_hostname }}
           local_raw       {{ _raw_subdir }}: {{ _do_local_raw }}
           s3_raw          s3://{{ tpcds_s3_bucket }}/tpcds-{{ tpcds_scale }}-raw: {{ _do_s3_raw }}
-          s3_warehouses   s3://{{ tpcds_s3_bucket }}/tpcds-{{ tpcds_scale }}-{{ '{' + (clean_formats | join(',')) + '}' }}: {{ _do_s3_warehouses }}
+          s3_warehouses   s3://{{ tpcds_s3_bucket }}/tpcds_{{ tpcds_scale }}_{{ '{' + (clean_formats | join(',')) + '}' }}.db: {{ _do_s3_warehouses }}
 
     # ── Локальный raw на lang36 ──
     - name: Remove local raw directory
@@ -117,11 +117,12 @@
         - _rm_raw.rc != 0
         - '"Object does not exist" not in _rm_raw.stderr'
 
-    # ── S3 warehouses (per format) ──
-    - name: Remove S3 warehouses (per format)
+    # ── S3 warehouses (per format database) ──
+    # Layout: s3://bucket/tpcds_<scale>_<format>.db/<table>/
+    - name: Remove S3 warehouses (per format database)
       shell: |
         {{ _tpcds_dir }}/mc rm --recursive --force \
-          ozone/{{ tpcds_s3_bucket }}/tpcds-{{ tpcds_scale }}-{{ item }}
+          ozone/{{ tpcds_s3_bucket }}/tpcds_{{ tpcds_scale }}_{{ item }}.db
       loop: "{{ clean_formats }}"
       loop_control:
         label: "{{ item }}"
