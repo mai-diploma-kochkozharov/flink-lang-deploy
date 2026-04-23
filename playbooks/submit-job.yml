@@ -197,7 +197,11 @@
     # или `make kill-tpcds` / `make kill-all`.
     - name: Build and execute flink run command
       shell: |
-        export HADOOP_CLASSPATH=$(hadoop classpath)
+        if command -v hadoop >/dev/null 2>&1; then
+          export HADOOP_CLASSPATH=$(hadoop classpath)
+        else
+          export HADOOP_CLASSPATH=""
+        fi
         export FLINK_HOME={{ flink_home }}
         {{ flink_home }}/bin/flink run \
           -m {{ inventory_hostname }}:8081 \

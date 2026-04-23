@@ -11,18 +11,25 @@ flink_jobmanager_rpc_port: 6123
 flink_jobmanager_web_port: 8081
 
 # ── Memory (override per-group or per-host as needed) ──
-flink_jobmanager_memory: "4096m"
-flink_taskmanager_memory: "8192m"
-flink_taskmanager_metaspace_size: "1024m"   # janino-codegen из paimon 1.4.0 упирается в дефолт 256m
-# Vortex/arrow на чтении аллоцирует много off-heap (batched reads, decompression buffers).
-# Дефолт task.off-heap.size=0 приводит к OOM "Can't allocate enough direct buffer for batch
-# shuffle read buffer pool". Ставим 1GB per-TM — хватит vortex-у и при этом не съест всё
-# у Flink-овского network/shuffle pool.
-flink_taskmanager_task_off_heap_size: "1024m"
-flink_taskmanager_slots: 10
+# JM: для batch с parallelism=300 нужен простор под job-graph-сериализацию +
+# метаданные 300 task-ов; 12g хватает с запасом.
+flink_jobmanager_memory: "12288m"
+# TM: 60 слотов × ~1.6g/slot = 96g. С 300 total-слотов на 5 TM-ах это корректно
+# распределяет нагрузку. Если на ноде меньше 128g RAM — снижай.
+flink_taskmanager_memory: "98304m"
+# Managed память для hash join / sort buffer / paimon sort-write. При TPC-DS
+# без этого — spill-loop часами. 40g = ~40% от process.size (выше дефолтной
+# фракции 0.4 чуть-чуть, но явно задано чтобы не сломалось при тюнинге).
+flink_taskmanager_managed_size: "40g"
+flink_taskmanager_metaspace_size: "2g"
+# Vortex/arrow direct memory + batch shuffle с 60 слотами = много off-heap.
+# 4g per-TM safe bound.
+flink_taskmanager_task_off_heap_size: "4g"
+flink_taskmanager_slots: 60
 
 # ── Parallelism ────────────────────────────────────────
-flink_parallelism_default: 20          # 5 TM hosts × 4 slots
+# 5 TM × 60 slots = 300 total slots → job с -p 300 забивает кластер полностью.
+flink_parallelism_default: 300
 
 # ── HA (выключено по умолчанию) ────────────────────────
 flink_ha_enabled: false
@@ -35,6 +42,18 @@ flink_java_home: /usr/lib/jvm/java-17
 
 # ── Logging ────────────────────────────────────────────
 flink_log_dir: "{{ flink_home }}/log"
+
+# ── Hadoop-uber JAR в lib/ (для нод без системного hadoop) ────
+# lang33 в кластере без локального hadoop-установки. flink-s3-fs-hadoop плагин
+# требует hadoop-common/hadoop-aws классы в classpath. На 34/36 они подтянуты
+# через `export HADOOP_CLASSPATH=$(hadoop classpath)` в start.yml. На 33 этого
+# нет — кладём flink-shaded-hadoop-2-uber в $FLINK_HOME/lib/ как self-contained
+# источник hadoop-классов. Копируется на ВСЕ ноды (не мешает 34/36, на них
+# classpath дополняется, но это не создаёт конфликтов).
+flink_hadoop_uber_enabled: true
+flink_hadoop_uber_version: "2.8.3-10.0"
+flink_hadoop_uber_jar: "flink-shaded-hadoop-2-uber-{{ flink_hadoop_uber_version }}.jar"
+flink_hadoop_uber_url: "https://repo1.maven.org/maven2/org/apache/flink/flink-shaded-hadoop-2-uber/{{ flink_hadoop_uber_version }}/{{ flink_hadoop_uber_jar }}"
 
 # ── S3 (Ozone) ─────────────────────────────────────────
 # Выставляет конфиг для flink-s3-fs-hadoop и env для vortex native writer.

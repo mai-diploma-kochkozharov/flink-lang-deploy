@@ -94,6 +94,27 @@
     mode: "0644"
   when: flink_s3_enabled | bool
 
+# ── 6. Hadoop-uber JAR в lib/ (self-contained hadoop classes) ──
+# На нодах без системного hadoop (lang33) flink-s3-fs-hadoop плагину нечего
+# подтянуть через HADOOP_CLASSPATH. Кладём uber-jar в $FLINK_HOME/lib/ —
+# он берётся в classpath Flink автоматически.
+- name: Download flink-shaded-hadoop-2-uber to controller files/
+  get_url:
+    url: "{{ flink_hadoop_uber_url }}"
+    dest: "{{ playbook_dir }}/../files/{{ flink_hadoop_uber_jar }}"
+    mode: "0644"
+  delegate_to: localhost
+  run_once: true
+  when: flink_hadoop_uber_enabled | bool
+
+- name: Copy flink-shaded-hadoop-2-uber to cluster node lib/
+  copy:
+    src: "{{ playbook_dir }}/../files/{{ flink_hadoop_uber_jar }}"
+    dest: "{{ flink_home }}/lib/{{ flink_hadoop_uber_jar }}"
+    mode: "0644"
+  when: flink_hadoop_uber_enabled | bool
+  notify: restart flink component
+
 - name: Clean up archive from /tmp
   file:
     path: "/tmp/{{ flink_archive }}"

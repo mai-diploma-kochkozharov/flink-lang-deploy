@@ -23,7 +23,14 @@
     - name: Start JobManager process
       shell: |
         export FLINK_HOME={{ flink_home }}
-        export HADOOP_CLASSPATH=$(hadoop classpath)
+        # На нодах без системного hadoop (lang33) `hadoop` не найден →
+        # HADOOP_CLASSPATH пуст, hadoop-классы берутся из flink-shaded-hadoop-
+        # 2-uber.jar в $FLINK_HOME/lib/ (раскладывается install.yml).
+        if command -v hadoop >/dev/null 2>&1; then
+          export HADOOP_CLASSPATH=$(hadoop classpath)
+        else
+          export HADOOP_CLASSPATH=""
+        fi
         {% if flink_s3_enabled | default(false) | bool %}
         export AWS_ENDPOINT='{{ flink_s3_endpoint }}'
         export AWS_ACCESS_KEY_ID='{{ flink_s3_access_key }}'
@@ -65,7 +72,14 @@
     - name: Start TaskManager process
       shell: |
         export FLINK_HOME={{ flink_home }}
-        export HADOOP_CLASSPATH=$(hadoop classpath)
+        # На нодах без системного hadoop (lang33) `hadoop` не найден →
+        # HADOOP_CLASSPATH пуст, hadoop-классы берутся из flink-shaded-hadoop-
+        # 2-uber.jar в $FLINK_HOME/lib/ (раскладывается install.yml).
+        if command -v hadoop >/dev/null 2>&1; then
+          export HADOOP_CLASSPATH=$(hadoop classpath)
+        else
+          export HADOOP_CLASSPATH=""
+        fi
         {% if flink_s3_enabled | default(false) | bool %}
         export AWS_ENDPOINT='{{ flink_s3_endpoint }}'
         export AWS_ACCESS_KEY_ID='{{ flink_s3_access_key }}'
@@ -103,7 +117,14 @@
     - name: Start SQL Gateway process
       shell: |
         export FLINK_HOME={{ flink_home }}
-        export HADOOP_CLASSPATH=$(hadoop classpath)
+        # На нодах без системного hadoop (lang33) `hadoop` не найден →
+        # HADOOP_CLASSPATH пуст, hadoop-классы берутся из flink-shaded-hadoop-
+        # 2-uber.jar в $FLINK_HOME/lib/ (раскладывается install.yml).
+        if command -v hadoop >/dev/null 2>&1; then
+          export HADOOP_CLASSPATH=$(hadoop classpath)
+        else
+          export HADOOP_CLASSPATH=""
+        fi
         nohup {{ flink_home }}/bin/sql-gateway.sh start \
           -Dsql-gateway.endpoint.rest.address=0.0.0.0 \
           -Dsql-gateway.endpoint.rest.port={{ sql_gateway_port }} \
