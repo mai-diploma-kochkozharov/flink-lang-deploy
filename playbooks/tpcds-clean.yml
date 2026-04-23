@@ -1,18 +1,22 @@
 ---
 # ============================================================
-#  tpcds-clean.yml — сносит артефакты TPC-DS на разных этапах
+#  tpcds-clean.yml — сносит артефакты TPC-DS и WriteBenchmarkJob
 #
 #  Флаги (все по умолчанию false — ничего не удалится пока явно не попросишь):
-#    clean_local_raw       — снести /opt/flink-ivkochkozharov/tpcds-data/<scale> на lang36
-#    clean_s3_raw          — снести s3://<bucket>/tpcds-<scale>-raw (исходные CSV)
-#    clean_s3_warehouses   — снести s3://<bucket>/tpcds-<scale>-<format> для каждого в clean_formats
-#    clean_all             — shortcut, включает все три
+#    clean_local_raw            — снести /opt/flink-ivkochkozharov/tpcds-data/<scale> на lang36
+#    clean_s3_raw               — снести s3://<bucket>/tpcds-<scale>-raw (исходные CSV)
+#    clean_s3_warehouses        — снести s3://<bucket>/tpcds_<scale>_<format>.db для
+#                                 каждого в clean_formats (paimon databases TPC-DS)
+#    clean_writebench_warehouses — снести s3://<bucket>/writebench_<format>.db для
+#                                  каждого в writebench_formats (WriteBenchmarkJob)
+#    clean_all                  — shortcut, включает всё (включая writebench)
 #
 #  Параметры:
 #    tpcds_scale           — default 100
 #    tpcds_s3_bucket       — default paimon-b2c
 #    tpcds_datagen_host    — default lang36.delta.sbrf.ru (где mc + локальный raw)
-#    clean_formats         — список форматов для warehouses. Default [parquet, orc, vortex]
+#    clean_formats         — список форматов TPC-DS. Default [parquet, orc, vortex]
+#    writebench_formats    — список форматов writebench. Default [parquet, orc, vortex]
 #
 #  S3-доступ (для mc):
 #    flink_s3_endpoint, flink_s3_access_key, flink_s3_secret_key
@@ -31,6 +35,13 @@
 #
 #    # Только локальный raw (если места мало на lang36):
 #    ansible-playbook playbooks/tpcds-clean.yml -e clean_local_raw=true
+#
+#    # Только writebench-warehouses (все форматы):
+#    ansible-playbook playbooks/tpcds-clean.yml -e clean_writebench_warehouses=true ...
+#
+#    # Только vortex-warehouse writebench:
+#    ansible-playbook playbooks/tpcds-clean.yml -e clean_writebench_warehouses=true \
+#      -e 'writebench_formats=["vortex"]' ...
 # ============================================================
 
 - import_playbook: krb-renew.yml
@@ -46,9 +57,14 @@
       - parquet
       - orc
       - vortex
+    writebench_formats:
+      - parquet
+      - orc
+      - vortex
     clean_local_raw: false
     clean_s3_raw: false
     clean_s3_warehouses: false
+    clean_writebench_warehouses: false
     clean_all: false
     _tpcds_dir: /opt/flink-ivkochkozharov/tpcds-data
     _raw_subdir: "{{ _tpcds_dir }}/{{ tpcds_scale }}"
@@ -58,14 +74,16 @@
         _do_local_raw: "{{ clean_local_raw or clean_all | bool }}"
         _do_s3_raw: "{{ clean_s3_raw or clean_all | bool }}"
         _do_s3_warehouses: "{{ clean_s3_warehouses or clean_all | bool }}"
+        _do_writebench: "{{ clean_writebench_warehouses or clean_all | bool }}"
 
     - name: Summary — what will be cleaned
       debug:
         msg: |
           scale={{ tpcds_scale }}  bucket={{ tpcds_s3_bucket }}  host={{ inventory_hostname }}
-          local_raw       {{ _raw_subdir }}: {{ _do_local_raw }}
-          s3_raw          s3://{{ tpcds_s3_bucket }}/tpcds-{{ tpcds_scale }}-raw: {{ _do_s3_raw }}
-          s3_warehouses   s3://{{ tpcds_s3_bucket }}/tpcds_{{ tpcds_scale }}_{{ '{' + (clean_formats | join(',')) + '}' }}.db: {{ _do_s3_warehouses }}
+          local_raw           {{ _raw_subdir }}: {{ _do_local_raw }}
+          s3_raw              s3://{{ tpcds_s3_bucket }}/tpcds-{{ tpcds_scale }}-raw: {{ _do_s3_raw }}
+          s3_warehouses       s3://{{ tpcds_s3_bucket }}/tpcds_{{ tpcds_scale }}_{{ '{' + (clean_formats | join(',')) + '}' }}.db: {{ _do_s3_warehouses }}
+          writebench_warehouses s3://{{ tpcds_s3_bucket }}/writebench_{{ '{' + (writebench_formats | join(',')) + '}' }}.db: {{ _do_writebench }}
 
     # ── Локальный raw на lang36 ──
     - name: Remove local raw directory
@@ -82,7 +100,7 @@
       stat:
         path: "{{ _tpcds_dir }}/mc"
       register: _mc_stat
-      when: _do_s3_raw | bool or _do_s3_warehouses | bool
+      when: _do_s3_raw | bool or _do_s3_warehouses | bool or _do_writebench | bool
 
     - name: Fail if mc missing
       fail:
@@ -90,7 +108,7 @@
           mc не найден в {{ _tpcds_dir }}/mc. Прогони сначала tpcds-generate.yml
           (он установит mc) или переопредели _tpcds_dir.
       when:
-        - _do_s3_raw | bool or _do_s3_warehouses | bool
+        - _do_s3_raw | bool or _do_s3_warehouses | bool or _do_writebench | bool
         - not _mc_stat.stat.exists
 
     - name: Configure mc alias for Ozone S3
@@ -103,7 +121,7 @@
           --api s3v4 \
           --path on
       changed_when: false
-      when: _do_s3_raw | bool or _do_s3_warehouses | bool
+      when: _do_s3_raw | bool or _do_s3_warehouses | bool or _do_writebench | bool
 
     # ── S3 raw prefix ──
     - name: Remove S3 raw prefix (tpcds-{{ tpcds_scale }}-raw)
@@ -132,6 +150,22 @@
       failed_when:
         - _rm_wh.rc != 0
         - '"Object does not exist" not in _rm_wh.stderr'
+
+    # ── WriteBenchmarkJob paimon-базы (writebench_<format>.db) ──
+    # Layout: s3://bucket/writebench_<format>.db/bench_table/
+    - name: Remove S3 writebench warehouses (per format database)
+      shell: |
+        {{ _tpcds_dir }}/mc rm --recursive --force \
+          ozone/{{ tpcds_s3_bucket }}/writebench_{{ item }}.db
+      loop: "{{ writebench_formats }}"
+      loop_control:
+        label: "{{ item }}"
+      when: _do_writebench | bool
+      register: _rm_wb
+      changed_when: _rm_wb.stdout != ''
+      failed_when:
+        - _rm_wb.rc != 0
+        - '"Object does not exist" not in _rm_wb.stderr'
 
     - name: Final state
       debug:

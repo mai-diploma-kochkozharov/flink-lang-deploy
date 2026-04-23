@@ -21,6 +21,7 @@
 #  Примеры:
 #    ansible-playbook playbooks/kill-job.yml
 #    ansible-playbook playbooks/kill-job.yml -e kill_class=PaimonHdfsJob
+#    ansible-playbook playbooks/kill-job.yml -e kill_class=WriteBenchmarkJob
 #    ansible-playbook playbooks/kill-job.yml -e kill_all=true
 # ============================================================
 
