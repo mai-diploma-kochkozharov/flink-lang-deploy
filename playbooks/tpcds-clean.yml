@@ -44,8 +44,7 @@
 #      -e 'writebench_formats=["vortex"]' ...
 # ============================================================
 
-- import_playbook: krb-renew.yml
-
+#- import_playbook: krb-renew.yml
 
 - name: Clean TPC-DS artifacts
   hosts: "{{ tpcds_datagen_host | default('lang36.delta.sbrf.ru') }}"

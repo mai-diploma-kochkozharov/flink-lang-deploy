@@ -6,8 +6,7 @@
 #    2) TaskManager на всех 5 машинах
 # ============================================================
 
-- import_playbook: krb-renew.yml
-
+#- import_playbook: krb-renew.yml
 - name: Start JobManager
   hosts: jobmanager
   gather_facts: false
@@ -87,6 +86,7 @@
         export AWS_ALLOW_HTTP='true'
         # Trace object_store/vortex при ошибках записи — логи уходят в *.out
         export RUST_LOG='info,object_store=debug,vortex=debug'
+        export RUST_BACKTRACE='full'
         {% endif %}
         nohup {{ flink_home }}/bin/taskmanager.sh start > /dev/null 2>&1
       when: tm_status.stdout == ""

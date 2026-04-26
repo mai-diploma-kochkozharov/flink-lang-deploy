@@ -13,25 +13,25 @@ flink_jobmanager_web_port: 8081
 # ── Memory (override per-group or per-host as needed) ──
 # JM: для batch с parallelism=300 нужен простор под job-graph-сериализацию +
 # метаданные 300 task-ов; 12g хватает с запасом.
-flink_jobmanager_memory: "12288m"
+flink_jobmanager_memory: "16g"
 # TM: 60 слотов × ~1.6g/slot = 96g. С 300 total-слотов на 5 TM-ах это корректно
 # распределяет нагрузку. Если на ноде меньше 128g RAM — снижай.
 # 128g process — даёт место под увеличенный off-heap (16g) + managed (40g) +
 # network (~13g по fraction) + metaspace (2g) + task-heap (~50g).
 # Если RAM ноды меньше 160 — снижай process и managed пропорционально.
-flink_taskmanager_memory: "131072m"
+flink_taskmanager_memory: "200g"
 # Managed память для hash join / sort buffer / paimon sort-write. При TPC-DS
 # без этого — spill-loop часами. 40g = ~40% от process.size (выше дефолтной
 # фракции 0.4 чуть-чуть, но явно задано чтобы не сломалось при тюнинге).
-flink_taskmanager_managed_size: "40g"
-flink_taskmanager_metaspace_size: "2g"
+flink_taskmanager_managed_size: "70g"
+flink_taskmanager_metaspace_size: "16g"
 # Vortex/arrow direct memory + batch shuffle с 60 слотами + interleaved
 # прогон 3 форматов (каждый slot держит открытые paimon+arrow readers по всем
 # каталогам сразу) = огромный direct pool. Ночной прогон TPC-DS упал по
 # "Cannot reserve 4194304 bytes of direct buffer memory (limit: ~14GB)" —
 # netty-pool упирался в 4g + 9.6g network = 13.6g. Ставим 16g чтобы с
 # запасом переварить 60-slot interleaved-режим.
-flink_taskmanager_task_off_heap_size: "16g"
+flink_taskmanager_task_off_heap_size: "32g"
 flink_taskmanager_slots: 60
 
 # ── Parallelism ────────────────────────────────────────
