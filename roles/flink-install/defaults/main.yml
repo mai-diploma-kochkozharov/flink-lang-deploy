@@ -14,6 +14,7 @@ flink_jobmanager_web_port: 8081
 # JM: для batch с parallelism=300 нужен простор под job-graph-сериализацию +
 # метаданные 300 task-ов; 12g хватает с запасом.
 flink_jobmanager_memory: "30g"
+flink_jobmanager_metaspace_size: "4g"
 # TM: 60 слотов × ~1.6g/slot = 96g. С 300 total-слотов на 5 TM-ах это корректно
 # распределяет нагрузку. Если на ноде меньше 128g RAM — снижай.
 # 128g process — даёт место под увеличенный off-heap (16g) + managed (40g) +
