@@ -77,4 +77,14 @@ flink_s3_path_style_access: true
 flink_hadoopfs_token_enabled: false
 
 # ── Extra flink-conf.yaml entries (dict) ───────────────
-flink_extra_config: {}
+# S3A HTTP connection pool tuning. Дефолтные 48 connections не выдерживают
+# 240+60 parallel task-ов делающих одновременные S3 ops (parquet/orc писатель +
+# reader-snapshot + background compaction). Симптом: ConnectionPoolTimeoutException
+# при concurrent writer + reader на cluster. Vortex/Lance не страдают (свой
+# Rust-object_store pool), но parquet/orc — да.
+# Префикс s3.* — flink-s3-fs-hadoop плагин мапит в fs.s3a.*.
+flink_extra_config:
+  s3.connection.maximum: 2000      # default 48
+  s3.threads.max: 200              # default 10 — multipart upload threads
+  s3.max.total.tasks: 200          # default 5  — async tasks queue
+  s3.attempts.maximum: 20          # default 20 — flaky-S3 retry
