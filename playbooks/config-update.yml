@@ -108,8 +108,11 @@
         for i in $(seq 1 $N); do
           {{ flink_home }}/bin/taskmanager.sh stop || true
         done
-        # finalize: на случай зависших процессов
-        pkill -f 'TaskManagerRunner' || true
+        # finalize: pkill -f 'TaskManagerRunner' матчит сам shell ansible-обёртки
+        # (строка 'TaskManagerRunner' встречается в cmdline текущего процесса) и
+        # SIGTERM-ит его. Используем [T] regex-trick чтобы паттерн не матчил
+        # свой собственный буквальный текст.
+        pkill -f 'org\.apache\.flink\.runtime\.taskexecutor\.[T]askManagerRunner' || true
         sleep 2
         echo "Starting $N TaskManager(s)..."
         for i in $(seq 1 $N); do

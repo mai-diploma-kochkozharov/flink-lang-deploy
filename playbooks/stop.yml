@@ -58,8 +58,10 @@
       changed_when: false
 
     - name: Force-kill TaskManager if still running
+      # [T]askManagerRunner — regex-trick, чтобы pkill -f не убил сам себя
+      # (собственный shell имеет строку TaskManagerRunner в cmdline)
       shell: |
-        pkill -f 'TaskManagerRunner' || true
+        pkill -f 'org\.apache\.flink\.runtime\.taskexecutor\.[T]askManagerRunner' || true
       when: tm_check.stdout != ""
 
     - name: TaskManager stopped
