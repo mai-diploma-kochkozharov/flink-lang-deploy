@@ -77,6 +77,10 @@
   vars:
     flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
     restart: false
+    # ВАЖНО: defaults роли flink-install видны только в play, где роль
+    # импортирована. Эта play (Rolling restart) роль НЕ грузит, поэтому
+    # переменную дублируем тут. Можно переопределить через `-e`.
+    flink_taskmanagers_per_host: 2
   tasks:
     - name: Restart TaskManagers (учитываем flink_taskmanagers_per_host)
       # При flink_taskmanagers_per_host=2 на хосте две JVM TaskExecutor-а.
@@ -84,7 +88,13 @@
       # вызываем stop N раз, потом start N раз, где N = target число TM-ов.
       shell: |
         export FLINK_HOME={{ flink_home }}
-        export HADOOP_CLASSPATH=$(hadoop classpath)
+        # На lang33 нет системного hadoop → `hadoop classpath` падает.
+        # Conditional: ставим HADOOP_CLASSPATH только если hadoop есть в PATH.
+        if command -v hadoop >/dev/null 2>&1; then
+          export HADOOP_CLASSPATH=$(hadoop classpath)
+        else
+          export HADOOP_CLASSPATH=""
+        fi
         {% if flink_s3_enabled | default(false) | bool %}
         export AWS_ENDPOINT='{{ flink_s3_endpoint }}'
         export AWS_ACCESS_KEY_ID='{{ flink_s3_access_key }}'
@@ -93,15 +103,17 @@
         export RUST_LOG='info,object_store=debug,vortex=debug'
         export RUST_BACKTRACE='full'
         {% endif %}
-        N={{ flink_taskmanagers_per_host | default(1) | int }}
+        N={{ flink_taskmanagers_per_host | int }}
+        echo "Stopping all $N TaskManager(s) on $(hostname)..."
         for i in $(seq 1 $N); do
           {{ flink_home }}/bin/taskmanager.sh stop || true
         done
-        # На случай зависших процессов — finalize через pkill (idempotent).
+        # finalize: на случай зависших процессов
         pkill -f 'TaskManagerRunner' || true
         sleep 2
+        echo "Starting $N TaskManager(s)..."
         for i in $(seq 1 $N); do
-          {{ flink_home }}/bin/taskmanager.sh start
+          nohup {{ flink_home }}/bin/taskmanager.sh start > /dev/null 2>&1
         done
       when: restart | bool
 

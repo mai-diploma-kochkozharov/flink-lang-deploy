@@ -37,6 +37,9 @@
   gather_facts: false
   vars:
     flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
+    # ВАЖНО: defaults роли не подтягиваются здесь (роль не импортирована).
+    # Дублируем дефолт. Если хост был запущен с другим N, передай через `-e`.
+    flink_taskmanagers_per_host: 2
   tasks:
     - name: Stop TaskManagers (вызываем stop столько раз, сколько TM на хосте)
       # taskmanager.sh stop останавливает по одному инстансу за вызов.
