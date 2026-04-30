@@ -78,7 +78,10 @@
     flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
     restart: false
   tasks:
-    - name: Restart TaskManager
+    - name: Restart TaskManagers (учитываем flink_taskmanagers_per_host)
+      # При flink_taskmanagers_per_host=2 на хосте две JVM TaskExecutor-а.
+      # taskmanager.sh stop останавливает по одному инстансу за вызов, поэтому
+      # вызываем stop N раз, потом start N раз, где N = target число TM-ов.
       shell: |
         export FLINK_HOME={{ flink_home }}
         export HADOOP_CLASSPATH=$(hadoop classpath)
@@ -90,12 +93,19 @@
         export RUST_LOG='info,object_store=debug,vortex=debug'
         export RUST_BACKTRACE='full'
         {% endif %}
-        {{ flink_home }}/bin/taskmanager.sh stop || true
-        sleep 1
-        {{ flink_home }}/bin/taskmanager.sh start
+        N={{ flink_taskmanagers_per_host | default(1) | int }}
+        for i in $(seq 1 $N); do
+          {{ flink_home }}/bin/taskmanager.sh stop || true
+        done
+        # На случай зависших процессов — finalize через pkill (idempotent).
+        pkill -f 'TaskManagerRunner' || true
+        sleep 2
+        for i in $(seq 1 $N); do
+          {{ flink_home }}/bin/taskmanager.sh start
+        done
       when: restart | bool
 
-    - name: Wait for TaskManager to register
+    - name: Wait for TaskManagers to register
       pause:
         seconds: 5
       when: restart | bool
