@@ -15,18 +15,24 @@ flink_jobmanager_web_port: 8081
 # метаданные 300 task-ов; 12g хватает с запасом.
 flink_jobmanager_memory: "30g"
 flink_jobmanager_metaspace_size: "4g"
-# TM: 5 нод × 2 TM/нода × 30 slots = 300 total slots, как раньше. Но теперь по
-# 2 JVM на машину — чтобы full GC одного TM не блокировал работу второго.
-# Особенно полезно для parquet (heap-bound compactor): на одном heap=240g full
-# GC занимал секунды и заваливал compactor; на heap=120g pauses в 2× меньше.
-# Каждый TM получает половину прежних ресурсов:
-#   process 120g, managed 50g, metaspace 8g, off-heap 30g, slots 30
+# TM: 5 нод × 2 TM/нода × 30 slots = 300 total slots, как раньше. По 2 JVM на
+# машину — чтобы full GC одного TM не блокировал работу второго.
+#
+# Перебалансировка под vortex/lance Arrow direct buffer pressure:
+# - process остаётся 120g (2 × 120 = 240g per host, влезает в ~256g RAM)
+# - managed 50g → 40g (для streaming не нужно 50g sort-buffer)
+# - task-off-heap 30g → 40g (vortex Arrow C Data Interface allocator)
+# - heap получает оставшиеся ~30g (+ ~4g framework + ~10g network buffers)
+#
+# Vortex/lance native readers через Arrow C Data Interface allocate-ят direct
+# buffer-ы по Netty Pool, не подчиняются flink-task-budget. При reader_p=200 +
+# 60s checkpoint (файлы ~18MB × multi-file merge × Netty 16MB chunks) упирались
+# в 30g лимит. 40g даёт ~2g per reader-task budget на TM (20 readers/TM ×
+# 2g = 40g), что покрывает worst-case Arrow batch-allocation pattern.
 flink_taskmanager_memory: "120g"
-# Managed память для hash join / sort buffer / paimon sort-write.
-flink_taskmanager_managed_size: "50g"
+flink_taskmanager_managed_size: "40g"
 flink_taskmanager_metaspace_size: "8g"
-# Vortex/arrow direct memory + batch shuffle. На 30 slots на TM хватает 30g.
-flink_taskmanager_task_off_heap_size: "30g"
+flink_taskmanager_task_off_heap_size: "40g"
 flink_taskmanager_slots: 30
 # Сколько TM запускать на каждой ноде. Раньше было 1 (один TM × 60 slots),
 # теперь 2 (по 30 slots каждый). Total slots на кластере остаётся 5 × 2 × 30 = 300.
