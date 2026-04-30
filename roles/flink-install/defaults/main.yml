@@ -15,24 +15,29 @@ flink_jobmanager_web_port: 8081
 # метаданные 300 task-ов; 12g хватает с запасом.
 flink_jobmanager_memory: "30g"
 flink_jobmanager_metaspace_size: "4g"
-# TM: 5 нод × 2 TM/нода × 30 slots = 300 total slots, как раньше. По 2 JVM на
-# машину — чтобы full GC одного TM не блокировал работу второго.
+# TM: 5 нод × 2 TM/нода × 30 slots = 300 total slots. По 2 JVM на машину —
+# чтобы full GC одного TM не блокировал работу второго.
 #
-# Перебалансировка под vortex/lance Arrow direct buffer pressure:
-# - process остаётся 120g (2 × 120 = 240g per host, влезает в ~256g RAM)
-# - managed 50g → 40g (для streaming не нужно 50g sort-buffer)
-# - task-off-heap 30g → 40g (vortex Arrow C Data Interface allocator)
-# - heap получает оставшиеся ~30g (+ ~4g framework + ~10g network buffers)
+# Ноды кластера имеют 754 GiB RAM каждая (free -h: 333 GiB free + 342 GiB
+# evictable cache = ~633 GiB available). Раньше было запрошено 240g per host
+# (2 × 120g), что недоутилизирует кластер. Расширяем до 560g per host
+# (2 × 280g), оставляя ~194g на OS / page cache / overhead.
 #
-# Vortex/lance native readers через Arrow C Data Interface allocate-ят direct
-# buffer-ы по Netty Pool, не подчиняются flink-task-budget. При reader_p=200 +
-# 60s checkpoint (файлы ~18MB × multi-file merge × Netty 16MB chunks) упирались
-# в 30g лимит. 40g даёт ~2g per reader-task budget на TM (20 readers/TM ×
-# 2g = 40g), что покрывает worst-case Arrow batch-allocation pattern.
-flink_taskmanager_memory: "120g"
-flink_taskmanager_managed_size: "40g"
+# Главное преимущество: огромный task-off-heap (120g на TM = 4g per reader-task
+# при p=200/10TM=20task/TM, или 6g при p=150). Vortex/lance Arrow C Data
+# Interface allocator может работать без OOM даже на 60s checkpoint с 18MB
+# файлами. Параллельно managed=50g даёт sort-buffer для compaction.
+#
+# Расчёт 280g process =
+#   ~90g task heap (с запасом для parquet/orc compactor)
+#   + 50g managed (sort buffer для paimon)
+#   + 120g task-off-heap (Arrow direct buffer pool, network buffers)
+#   + 8g metaspace
+#   + ~12g framework off-heap + JVM overhead
+flink_taskmanager_memory: "280g"
+flink_taskmanager_managed_size: "50g"
 flink_taskmanager_metaspace_size: "8g"
-flink_taskmanager_task_off_heap_size: "40g"
+flink_taskmanager_task_off_heap_size: "120g"
 flink_taskmanager_slots: 30
 # Сколько TM запускать на каждой ноде. Раньше было 1 (один TM × 60 slots),
 # теперь 2 (по 30 slots каждый). Total slots на кластере остаётся 5 × 2 × 30 = 300.
