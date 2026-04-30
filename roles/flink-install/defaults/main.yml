@@ -15,28 +15,25 @@ flink_jobmanager_web_port: 8081
 # метаданные 300 task-ов; 12g хватает с запасом.
 flink_jobmanager_memory: "30g"
 flink_jobmanager_metaspace_size: "4g"
-# TM: 60 слотов × ~1.6g/slot = 96g. С 300 total-слотов на 5 TM-ах это корректно
-# распределяет нагрузку. Если на ноде меньше 128g RAM — снижай.
-# 128g process — даёт место под увеличенный off-heap (16g) + managed (40g) +
-# network (~13g по fraction) + metaspace (2g) + task-heap (~50g).
-# Если RAM ноды меньше 160 — снижай process и managed пропорционально.
-flink_taskmanager_memory: "240g"
-# Managed память для hash join / sort buffer / paimon sort-write. При TPC-DS
-# без этого — spill-loop часами. 40g = ~40% от process.size (выше дефолтной
-# фракции 0.4 чуть-чуть, но явно задано чтобы не сломалось при тюнинге).
-flink_taskmanager_managed_size: "100g"
-flink_taskmanager_metaspace_size: "16g"
-# Vortex/arrow direct memory + batch shuffle с 60 слотами + interleaved
-# прогон 3 форматов (каждый slot держит открытые paimon+arrow readers по всем
-# каталогам сразу) = огромный direct pool. Ночной прогон TPC-DS упал по
-# "Cannot reserve 4194304 bytes of direct buffer memory (limit: ~14GB)" —
-# netty-pool упирался в 4g + 9.6g network = 13.6g. Ставим 16g чтобы с
-# запасом переварить 60-slot interleaved-режим.
-flink_taskmanager_task_off_heap_size: "60g"
-flink_taskmanager_slots: 60
+# TM: 5 нод × 2 TM/нода × 30 slots = 300 total slots, как раньше. Но теперь по
+# 2 JVM на машину — чтобы full GC одного TM не блокировал работу второго.
+# Особенно полезно для parquet (heap-bound compactor): на одном heap=240g full
+# GC занимал секунды и заваливал compactor; на heap=120g pauses в 2× меньше.
+# Каждый TM получает половину прежних ресурсов:
+#   process 120g, managed 50g, metaspace 8g, off-heap 30g, slots 30
+flink_taskmanager_memory: "120g"
+# Managed память для hash join / sort buffer / paimon sort-write.
+flink_taskmanager_managed_size: "50g"
+flink_taskmanager_metaspace_size: "8g"
+# Vortex/arrow direct memory + batch shuffle. На 30 slots на TM хватает 30g.
+flink_taskmanager_task_off_heap_size: "30g"
+flink_taskmanager_slots: 30
+# Сколько TM запускать на каждой ноде. Раньше было 1 (один TM × 60 slots),
+# теперь 2 (по 30 slots каждый). Total slots на кластере остаётся 5 × 2 × 30 = 300.
+flink_taskmanagers_per_host: 2
 
 # ── Parallelism ────────────────────────────────────────
-# 5 TM × 60 slots = 300 total slots → job с -p 300 забивает кластер полностью.
+# 5 нод × 2 TM × 30 slots = 300 total slots — как раньше.
 flink_parallelism_default: 300
 
 # ── HA (выключено по умолчанию) ────────────────────────

@@ -38,9 +38,13 @@
   vars:
     flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
   tasks:
-    - name: Stop TaskManager
+    - name: Stop TaskManagers (вызываем stop столько раз, сколько TM на хосте)
+      # taskmanager.sh stop останавливает по одному инстансу за вызов.
+      # Зацикливаем по числу запущенных, чтобы остановить все.
       shell: |
-        {{ flink_home }}/bin/taskmanager.sh stop || true
+        for i in $(seq 1 {{ flink_taskmanagers_per_host | default(1) | int }}); do
+          {{ flink_home }}/bin/taskmanager.sh stop || true
+        done
       register: tm_stop
       changed_when: "'Stopping' in tm_stop.stdout"
 

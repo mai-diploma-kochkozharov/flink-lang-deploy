@@ -62,13 +62,21 @@
   vars:
     flink_home: /opt/flink-ivkochkozharov/flink-2.2.0
   tasks:
-    - name: Check if TaskManager is already running
+    - name: Count running TaskManagers on this host
       shell: |
-        ps aux | grep -v grep | grep 'TaskManagerRunner' || true
-      register: tm_status
+        ps aux | grep -v grep | grep -c 'TaskManagerRunner' || true
+      register: tm_count_raw
       changed_when: false
 
-    - name: Start TaskManager process
+    - name: Compute how many TMs to start
+      set_fact:
+        _running_tms: "{{ tm_count_raw.stdout | int }}"
+        _target_tms: "{{ flink_taskmanagers_per_host | default(1) | int }}"
+
+    - name: Start TaskManager processes
+      # taskmanager.sh start запускает новый TM-инстанс с auto-assigned RPC port.
+      # PID-файлы и логи получают увеличивающийся suffix (-1, -2, ...).
+      # Запускаем (target - running) штук, чтобы итого было target TM-ов.
       shell: |
         export FLINK_HOME={{ flink_home }}
         # На нодах без системного hadoop (lang33) `hadoop` не найден →
@@ -89,16 +97,17 @@
         export RUST_BACKTRACE='full'
         {% endif %}
         nohup {{ flink_home }}/bin/taskmanager.sh start > /dev/null 2>&1
-      when: tm_status.stdout == ""
+      loop: "{{ range(_running_tms | int, _target_tms | int) | list }}"
+      loop_control:
+        loop_var: _tm_index
 
-    - name: Wait for TaskManager to register
+    - name: Wait for TaskManagers to register
       pause:
         seconds: 5
-      when: tm_status.stdout == ""
 
-    - name: TaskManager started
+    - name: TaskManagers started
       debug:
-        msg: "TaskManager started on {{ inventory_hostname }}"
+        msg: "{{ _target_tms }} TaskManager(s) running on {{ inventory_hostname }} (was {{ _running_tms }})"
 
 
 - name: Start SQL Gateway
