@@ -120,9 +120,10 @@
     path: "/tmp/{{ flink_archive }}"
     state: absent
 
-# ── 7. Lumina native libs unpack (для DiskANN vector index) ─────────────
+# ── 7. Lumina-jni (Aliyun DiskANN native binary) ────────────────────────
 # paimon-lumina (DiskANN) использует Aliyun lumina-jni-0.1.0.jar с native
 # .so файлами (linux/amd64/{libstdc++.so.6, liblumina.so, liblumina_jni.so}).
+# Не на Maven Central — только в Aliyun OSS репо.
 #
 # Aliyun NativeLibraryLoader при load извлекает их в /tmp и пытается
 # `System.load(libstdc++)` ПЕРЕД `System.load(liblumina_jni)`. Но в JDK 17
@@ -131,20 +132,33 @@
 # /lib64/libstdc++.so.6 (RHEL 8 → max GLIBCXX_3.4.25) → fail на GLIBCXX_3.4.26.
 #
 # Workaround: распаковать bundled .so в постоянный каталог и прокинуть
-# LD_LIBRARY_PATH в env Flink-процессов (см. start.yml). Тогда ld linker
-# найдёт правильную libstdc++ при resolve, без зависимости от RTLD_LOCAL.
-- name: Detect lumina-jni jar in lib/
-  find:
-    paths: "{{ flink_home }}/lib"
-    patterns: "lumina-jni-*.jar"
-  register: lumina_jni_jars
+# LD_LIBRARY_PATH в env Flink-процессов (см. start.yml + config-update.yml).
+# Тогда ld linker найдёт правильную libstdc++ при resolve, без зависимости
+# от RTLD_LOCAL.
+
+- name: Download lumina-jni to controller files/
+  get_url:
+    url: "{{ flink_lumina_url }}"
+    dest: "{{ playbook_dir }}/../files/{{ flink_lumina_jar }}"
+    mode: "0644"
+  delegate_to: localhost
+  run_once: true
+  when: flink_lumina_enabled | bool
+
+- name: Copy lumina-jni to cluster node lib/
+  copy:
+    src: "{{ playbook_dir }}/../files/{{ flink_lumina_jar }}"
+    dest: "{{ flink_home }}/lib/{{ flink_lumina_jar }}"
+    mode: "0644"
+  when: flink_lumina_enabled | bool
+  notify: restart flink component
 
 - name: Extract bundled lumina native libs
   # Aliyun jar содержит linux/amd64/{libstdc++.so.6, liblumina.so, liblumina_jni.so}
   # — все нужны для DiskANN. unzip -j флэтит структуру (без linux/amd64/ prefix).
   shell: |
     set -eu
-    JAR="{{ lumina_jni_jars.files[0].path }}"
+    JAR="{{ flink_home }}/lib/{{ flink_lumina_jar }}"
     NATIVE_DIR="{{ flink_home }}/lib/native/linux/amd64"
     mkdir -p "$NATIVE_DIR"
     if command -v unzip >/dev/null 2>&1; then
@@ -159,5 +173,5 @@
     chmod 0755 "$NATIVE_DIR"/*.so* || true
   args:
     creates: "{{ flink_home }}/lib/native/linux/amd64/liblumina_jni.so"
-  when: lumina_jni_jars.files | length > 0
+  when: flink_lumina_enabled | bool
   notify: restart flink component

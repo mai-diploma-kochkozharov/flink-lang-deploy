@@ -71,6 +71,16 @@ flink_hadoop_uber_version: "2.8.3-10.0"
 flink_hadoop_uber_jar: "flink-shaded-hadoop-2-uber-{{ flink_hadoop_uber_version }}.jar"
 flink_hadoop_uber_url: "https://repo1.maven.org/maven2/org/apache/flink/flink-shaded-hadoop-2-uber/{{ flink_hadoop_uber_version }}/{{ flink_hadoop_uber_jar }}"
 
+# ── Lumina-jni (Aliyun DiskANN native binary) ──────────────
+# paimon-lumina (DiskANN) использует Aliyun lumina-jni jar — pre-compiled
+# native binary с linux/amd64/{libstdc++.so.6, liblumina.so, liblumina_jni.so}.
+# Не на Maven Central — только в Aliyun OSS репо (доступен публично).
+# Включается через flink_lumina_enabled=true (default false — большинству не надо).
+flink_lumina_enabled: false
+flink_lumina_version: "0.1.0"
+flink_lumina_jar: "lumina-jni-{{ flink_lumina_version }}.jar"
+flink_lumina_url: "https://lumina-binary.oss-cn-shanghai.aliyuncs.com/mvn-repo/org/aliyun/lumina/lumina-jni/{{ flink_lumina_version }}/{{ flink_lumina_jar }}"
+
 # ── S3 (Ozone) ─────────────────────────────────────────
 # Выставляет конфиг для flink-s3-fs-hadoop и env для vortex native writer.
 # Включается переопределением flink_s3_enabled=true через -e или group_vars.
