@@ -49,7 +49,7 @@
         export HADOOP_CLASSPATH=$(hadoop classpath)
         # Lumina DiskANN: bundled libstdc++.so.6 для resolve liblumina.so при load.
         # См. roles/flink-install/tasks/main.yml (extract bundled .so в lib/native).
-        # JDK 17 dlopen RTLD_LOCAL делает Aliyun's preload бесполезным — нужен env var.
+        # JDK 17 dlopen RTLD_LOCAL делает Aliyun preload бесполезным — нужен env var.
         if [ -d "{{ flink_home }}/lib/native/linux/amd64" ]; then
           export LD_LIBRARY_PATH="{{ flink_home }}/lib/native/linux/amd64:$LD_LIBRARY_PATH"
         fi
