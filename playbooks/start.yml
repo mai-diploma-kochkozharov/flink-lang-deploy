@@ -35,7 +35,7 @@
         # (RHEL 8 → GLIBCXX_3.4.25 max) и падает на missing GLIBCXX_3.4.26 при load
         # liblumina.so. Aliyun's RTLD_LOCAL preload в JDK 17 не помогает — нужен env var.
         if [ -d "{{ flink_home }}/lib/native/linux/amd64" ]; then
-          export LD_LIBRARY_PATH="{{ flink_home }}/lib/native/linux/amd64:${LD_LIBRARY_PATH:-}"
+          export LD_LIBRARY_PATH="{{ flink_home }}/lib/native/linux/amd64:$LD_LIBRARY_PATH"
         fi
         {% if flink_s3_enabled | default(false) | bool %}
         export AWS_ENDPOINT='{{ flink_s3_endpoint }}'
@@ -100,7 +100,7 @@
         # Lumina DiskANN — см. JM-блок выше. Главное чтобы LD_LIBRARY_PATH был
         # установлен ДО запуска JVM (потом не повлияет — env фиксируется при старте).
         if [ -d "{{ flink_home }}/lib/native/linux/amd64" ]; then
-          export LD_LIBRARY_PATH="{{ flink_home }}/lib/native/linux/amd64:${LD_LIBRARY_PATH:-}"
+          export LD_LIBRARY_PATH="{{ flink_home }}/lib/native/linux/amd64:$LD_LIBRARY_PATH"
         fi
         {% if flink_s3_enabled | default(false) | bool %}
         export AWS_ENDPOINT='{{ flink_s3_endpoint }}'
@@ -151,7 +151,7 @@
         fi
         # Lumina DiskANN — bundled libstdc++ для liblumina.so. См. JM-блок выше.
         if [ -d "{{ flink_home }}/lib/native/linux/amd64" ]; then
-          export LD_LIBRARY_PATH="{{ flink_home }}/lib/native/linux/amd64:${LD_LIBRARY_PATH:-}"
+          export LD_LIBRARY_PATH="{{ flink_home }}/lib/native/linux/amd64:$LD_LIBRARY_PATH"
         fi
         nohup {{ flink_home }}/bin/sql-gateway.sh start \
           -Dsql-gateway.endpoint.rest.address=0.0.0.0 \

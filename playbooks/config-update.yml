@@ -51,7 +51,7 @@
         # См. roles/flink-install/tasks/main.yml (extract bundled .so в lib/native).
         # JDK 17 dlopen RTLD_LOCAL делает Aliyun's preload бесполезным — нужен env var.
         if [ -d "{{ flink_home }}/lib/native/linux/amd64" ]; then
-          export LD_LIBRARY_PATH="{{ flink_home }}/lib/native/linux/amd64:${LD_LIBRARY_PATH:-}"
+          export LD_LIBRARY_PATH="{{ flink_home }}/lib/native/linux/amd64:$LD_LIBRARY_PATH"
         fi
         {% if flink_s3_enabled | default(false) | bool %}
         export AWS_ENDPOINT='{{ flink_s3_endpoint }}'
@@ -103,7 +103,7 @@
         fi
         # Lumina DiskANN — bundled libstdc++ для liblumina.so. См. JM-блок выше.
         if [ -d "{{ flink_home }}/lib/native/linux/amd64" ]; then
-          export LD_LIBRARY_PATH="{{ flink_home }}/lib/native/linux/amd64:${LD_LIBRARY_PATH:-}"
+          export LD_LIBRARY_PATH="{{ flink_home }}/lib/native/linux/amd64:$LD_LIBRARY_PATH"
         fi
         {% if flink_s3_enabled | default(false) | bool %}
         export AWS_ENDPOINT='{{ flink_s3_endpoint }}'
