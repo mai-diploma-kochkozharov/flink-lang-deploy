@@ -119,3 +119,45 @@
   file:
     path: "/tmp/{{ flink_archive }}"
     state: absent
+
+# ── 7. Lumina native libs unpack (для DiskANN vector index) ─────────────
+# paimon-lumina (DiskANN) использует Aliyun lumina-jni-0.1.0.jar с native
+# .so файлами (linux/amd64/{libstdc++.so.6, liblumina.so, liblumina_jni.so}).
+#
+# Aliyun NativeLibraryLoader при load извлекает их в /tmp и пытается
+# `System.load(libstdc++)` ПЕРЕД `System.load(liblumina_jni)`. Но в JDK 17
+# System.load использует dlopen с RTLD_LOCAL → preloaded libstdc++ symbols
+# не видны при resolve dependencies liblumina.so → ld linker идёт в system
+# /lib64/libstdc++.so.6 (RHEL 8 → max GLIBCXX_3.4.25) → fail на GLIBCXX_3.4.26.
+#
+# Workaround: распаковать bundled .so в постоянный каталог и прокинуть
+# LD_LIBRARY_PATH в env Flink-процессов (см. start.yml). Тогда ld linker
+# найдёт правильную libstdc++ при resolve, без зависимости от RTLD_LOCAL.
+- name: Detect lumina-jni jar in lib/
+  find:
+    paths: "{{ flink_home }}/lib"
+    patterns: "lumina-jni-*.jar"
+  register: lumina_jni_jars
+
+- name: Extract bundled lumina native libs
+  # Aliyun jar содержит linux/amd64/{libstdc++.so.6, liblumina.so, liblumina_jni.so}
+  # — все нужны для DiskANN. unzip -j флэтит структуру (без linux/amd64/ prefix).
+  shell: |
+    set -eu
+    JAR="{{ lumina_jni_jars.files[0].path }}"
+    NATIVE_DIR="{{ flink_home }}/lib/native/linux/amd64"
+    mkdir -p "$NATIVE_DIR"
+    if command -v unzip >/dev/null 2>&1; then
+      unzip -o -j "$JAR" 'linux/amd64/*' -d "$NATIVE_DIR"
+    else
+      # fallback: jar tool из JDK
+      cd "$NATIVE_DIR"
+      "{{ flink_java_home }}/bin/jar" xf "$JAR" linux/amd64
+      mv linux/amd64/* . 2>/dev/null || true
+      rmdir linux/amd64 linux 2>/dev/null || true
+    fi
+    chmod 0755 "$NATIVE_DIR"/*.so* || true
+  args:
+    creates: "{{ flink_home }}/lib/native/linux/amd64/liblumina_jni.so"
+  when: lumina_jni_jars.files | length > 0
+  notify: restart flink component
