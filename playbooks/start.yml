@@ -44,6 +44,11 @@
         # object_store (rust crate в vortex-jni) по умолчанию требует HTTPS.
         # Ozone у нас по http — надо явно разрешить.
         export AWS_ALLOW_HTTP='true'
+        # AWS_REGION обязателен для object_store crate (без него — IMDS lookup для region).
+        export AWS_REGION='{{ flink_s3_region | default("us-east-1") }}'
+        # Явно отключаем IMDS (169.254.169.254) — мы не на EC2, IMDS-таймаут 140s
+        # на каждый файл при чтении из vortex/lance sidecar-ов.
+        export AWS_EC2_METADATA_DISABLED='true'
         {% endif %}
         nohup {{ flink_home }}/bin/jobmanager.sh start > /dev/null 2>&1
       when: jm_status.stdout == ""
@@ -107,6 +112,11 @@
         export AWS_ACCESS_KEY_ID='{{ flink_s3_access_key }}'
         export AWS_SECRET_ACCESS_KEY='{{ flink_s3_secret_key }}'
         export AWS_ALLOW_HTTP='true'
+        # AWS_REGION обязателен для object_store crate.
+        export AWS_REGION='{{ flink_s3_region | default("us-east-1") }}'
+        # Явно отключаем IMDS — мы не на EC2, иначе read из vortex/lance sidecar
+        # пытается PUT http://169.254.169.254/latest/api/token и зависает на 140s/файл.
+        export AWS_EC2_METADATA_DISABLED='true'
         # Trace object_store/vortex при ошибках записи — логи уходят в *.out
         export RUST_LOG='info,object_store=debug,vortex=debug'
         export RUST_BACKTRACE='full'
